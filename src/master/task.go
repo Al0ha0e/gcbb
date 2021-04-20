@@ -1,22 +1,24 @@
 package master
 
-type UnitTask struct{
-
+type UnitTask struct {
+	DataUrl string
 }
 
-type SubTask struct{
-	UnitTasks 	[]UnitTask
-	PreRequests []uint
-	PostTasks	[]uint
+type SubTask struct {
+	Code      []byte
+	UnitTasks []UnitTask
+	PreTasks  []uint32
+	PostTasks []uint32
+	InDeg     uint32
 }
 
-func NewSubTask() *SubTask{
+func NewSubTask() *SubTask {
 	return &SubTask{}
 }
 
 type Task struct {
-	SubTasks	[]*SubTask
-	
+	Id       uint64
+	SubTasks []*SubTask
 }
 
 func NewTask() *Task {
