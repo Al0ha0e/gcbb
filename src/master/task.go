@@ -17,8 +17,9 @@ func NewSubTask() *SubTask {
 }
 
 type Task struct {
-	Id       uint64
-	SubTasks []*SubTask
+	Id        uint64
+	FinishCnt uint32
+	SubTasks  []*SubTask
 }
 
 func NewTask() *Task {
