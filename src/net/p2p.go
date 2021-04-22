@@ -2,172 +2,116 @@ package net
 
 import (
 	"net"
-	"time"
-	"encoding/json"
 )
 
-type PSMsgType	uint8
+type PSMsgType uint8
 
-const(
-	PS_CONN PSMsgType = iota
+const (
+	PS_CONN  PSMsgType = iota
 	PS_ROUTE PSMsgType = iota
 )
 
 type P2PHandlerState uint8
+
 const (
 	ST_WAIT P2PHandlerState = iota
 	ST_PING P2PHandlerState = iota
 	ST_CONN P2PHandlerState = iota
 )
 
-func Send(sock *net.UDPConn,data []byte,addr *net.UDPAddr){
-	sock.WriteToUDP(data,addr)
-}
-
-func Recv(sock *net.UDPConn) chan *NetResult{
-	ret := make(chan *NetResult,1)
-	go func(result chan*NetResult){
-		ret := &NetResult{}
-		ret.L,ret.Addr,_ = sock.ReadFromUDP(ret.Data)
-		result <- ret
-	}(ret)
-	return ret
-}
-
 type P2PServerMsg struct {
-	Type PSMsgType  `json:"tp"`
-	Data []byte `json:"data"`
+	Type PSMsgType `json:"tp"`
+	Data []byte    `json:"data"`
 }
 
 type P2PConnMsg struct {
-	SrcIP      	net.IP	`json:"sIP"`
-	DstId		int64	`json:"dId"`
-	HandlerPort int		`json:"hPort"`
+	SrcIP       net.IP `json:"sIP"`
+	DstId       int64  `json:"dId"`
+	HandlerPort int    `json:"hPort"`
 }
 
 type P2PServer interface {
-	SetServer(*net.UDPAddr) chan *NetResult
-	ConnectUDP() chan *NetResult
+	Init()
 	Run()
+	ConnectUDP() chan *NetResult
 }
 
 type NaiveP2PServer struct {
-	Id 			int64
-	sock		*net.UDPConn
-	Handlers	map[int64]*P2PHandler
-	ConnResult	map[int64]chan *NetResult
-	ServerAddr	*net.UDPAddr
-	Connected bool
-	// Handler Pool
+	Id          int64
+	HandlerPool []P2PHandler
+	DHT         DistributedHashTable
+	HandlerChan chan *NetResult
 }
 
-func NewNaiveP2PServer(id int64,sock *net.UDPConn) *NaiveP2PServer {
+func NewNaiveP2PServer(id int64, pooledCnt int, dht DistributedHashTable) *NaiveP2PServer {
 	ret := &NaiveP2PServer{
-		Id: id,
-		sock:sock,
-		Handlers: make(map[int64]*P2PHandler)
+		Id:          id,
+		HandlerPool: make([]P2PHandler, pooledCnt),
+		DHT:         dht,
 	}
+	//Instantiate Handler
 	return ret
 }
 
-
-func (nps *NaiveP2PServer)SetServer(sAddr *net.UDPAddr) chan *NetResult{
-	ret := make(chan *NetResult, 1)
-	nps.ServerAddr = sAddr
-	go nps.setServer(ret)
-	return ret
+func (nps *NaiveP2PServer) Init() {
+	//CONNECT TO STABLE NODES
 }
 
-func (nph *NaiveP2PServer) setServer(result chan *NetResult) {
-	msg := &P2PServerMsg{
-		Type: PS_CONN,
-		Data: []byte(nph.Id),
-	}
-	payload,_ := json.Marshal(msg)
-	severConnTimer := time.NewTicker(10 * time.Second)
-	Send(nph.sock,nph.ServerAddr,payload)
+func (nps *NaiveP2PServer) Run() {
 	for {
 		select {
-		case <-severConnTimer.C:
-			ret := &NetResult{Status: 1}
-			result <- ret
-		case <-Recv(nph.sock):
-			nph.Connected = true
-			ret := &NetResult{Status: 0}
-			result <- ret
-		}
-	}
-}
-
-func (nps *NaiveP2PServer) ConnectUDP(id int64) chan *NetResult{
-	if _,ok := nps.Handlers[id], ok{
-		ret := make(chan *NetResult,1)
-		ret <- &NetResult{
-			Status: 1
-		}
-		return ret
-	}
-	//GET SOCKET
-	handler := NewNaiveP2PHandler()
-	handler.SetState(ST_WAIT)
-	nps.Handlers[id] = handler
-	connMsg := &P2PConnMsg{
-		DstId: id,
-	}
-	msgPayload,_ := json.Marshal(connMsg)
-	msg := &P2PServerMsg{
-		Type: PS_ROUTE,
-		Data: msgPayload,
-	}
-	payload ,_ := json.Marshal(msg)
-	Send(nps.sock,nps.ServerAddr,payload)
-	ret := make(chan *NetResult,1)
-	nps.ConnResult[id] = ret
-	return ret
-}
-
-func (nps *NaiveP2PServer) Run(){
-	for {
-		select{
-		case msg := <- Recv(nps.sock):
-			
+		case msg := <-nps.HandlerChan:
+			nps.DHT.Update(msg.Id)
 		}
 	}
 }
 
 type P2PHandler interface {
-	Send([]byte, *net.UDPAddr)
-	Recv() chan *NetResult
+	Init(*net.UDPAddr)
+	Run()
 	SetState(P2PHandlerState)
-	GetState()P2PHandlerState
-	Ping() chan *NetResult
+	GetState() P2PHandlerState
 }
 
 type NaiveP2PHandler struct {
-	sock *net.UDPConn
-	state P2PHandlerState
+	sock     *net.UDPConn
+	addr     *net.UDPAddr
+	state    P2PHandlerState
+	SendChan chan []byte
+	RecvChan chan *NetResult
+	CtrlChan chan uint8
 }
 
-func NewNaiveP2PHandler(sock *net.UDPConn) *NaiveP2PHandler {
-	return &NaiveP2PHandler{sock: sock}
+func NewNaiveP2PHandler(sock *net.UDPConn, sendChan chan []byte, recvChan chan *NetResult) *NaiveP2PHandler {
+	return &NaiveP2PHandler{
+		sock:     sock,
+		SendChan: sendChan,
+		RecvChan: recvChan,
+		CtrlChan: make(chan uint8, 1),
+	}
 }
 
-func (nph *NaiveP2PHandler) SetState(state P2PHandlerState){
+func (nph *NaiveP2PHandler) Init(addr *net.UDPAddr) {
+	nph.addr = addr
+}
+
+func (nph *NaiveP2PHandler) SetState(state P2PHandlerState) {
 	nph.state = state
 }
 
-func (nph *NaiveP2PHandler) GetState() P2PHandlerState{
+func (nph *NaiveP2PHandler) GetState() P2PHandlerState {
 	return nph.state
 }
 
-func (nph *NaiveP2PHandler) Send(data []byte, addr *net.UDPAddr) {
-	Send(nph.sock,data,addr)
-}
-
-func (nph *NaiveP2PHandler) Recv() chan *NetResult {
-	return Recv(nph.sock)
-}
-
-func (nph *NaiveP2PHandler) Ping() chan *NetResult{
-
+func (nph *NaiveP2PHandler) Run() {
+	for {
+		select {
+		case data := <-nph.SendChan:
+			Send(nph.sock, data, nph.addr)
+		case msg := <-Recv(nph.sock):
+			nph.RecvChan <- msg
+		case <-nph.CtrlChan:
+			return
+		}
+	}
 }
