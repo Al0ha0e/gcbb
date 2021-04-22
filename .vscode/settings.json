@@ -1,4 +1,7 @@
 {
+    "gopls":{
+        "build.experimentalWorkspaceModule": true
+    }, 
     "MicroPython.executeButton": [
         {
             "text": "▶",
