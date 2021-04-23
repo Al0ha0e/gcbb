@@ -1,9 +1,13 @@
 package net
 
 import (
+	"bytes"
 	"container/list"
+	"encoding/gob"
 	"net"
 	"time"
+
+	"github.com/gcbb/src/common"
 )
 
 type P2PHandlerState uint8
@@ -15,19 +19,24 @@ const (
 	ST_DISCONN P2PHandlerState = iota
 )
 
+type P2PMsg struct {
+	Id     common.NodeID
+	Data   []byte
+	Digest []byte
+	Sign   []byte
+}
+
 type P2PConnMsg struct {
-	SrcIP       net.IP `json:"sIP"`
-	DstId       int64  `json:"dId"`
-	HandlerPort int    `json:"hPort"`
+	Address string
 }
 
 type PeerInfo struct {
-	Id uint64
+	Id common.NodeID
 	Ip *net.UDPAddr
 }
 
 type PeerStateChange struct {
-	Id      uint64
+	Id      common.NodeID
 	State   P2PHandlerState
 	Handler P2PHandler
 }
@@ -36,26 +45,29 @@ type P2PServer interface {
 	Init()
 	Start()
 	Stop()
+	Send(NetMsg)
 	ConnectUDP() chan *NetResult
 }
 
 type NaiveP2PServer struct {
-	Id          int64
+	Id          common.NodeID
 	HandlerPool P2PHandlerPool
 	DHT         DistributedHashTable
+	sendChan    chan *NetMsg
 	HandlerChan chan *NetResult
 	StateChan   chan *PeerStateChange
 	ctrlChan    chan struct{}
 }
 
-func NewNaiveP2PServer(id int64, pooledCnt int, maxPooledCnt int, dht DistributedHashTable) *NaiveP2PServer {
+func NewNaiveP2PServer(id common.NodeID, pooledCnt int, maxPooledCnt int, dht DistributedHashTable) *NaiveP2PServer {
 	ret := &NaiveP2PServer{
 		Id:          id,
 		DHT:         dht,
+		sendChan:    make(chan *NetMsg, 10),
 		HandlerChan: make(chan *NetResult, 10),
 		StateChan:   make(chan *PeerStateChange, 10),
 	}
-	ret.HandlerPool = NewNaiveP2PHandlerPool(pooledCnt, maxPooledCnt, ret.HandlerChan, ret.StateChan)
+	ret.HandlerPool = NewNaiveP2PHandlerPool(id, pooledCnt, maxPooledCnt, ret.HandlerChan, ret.StateChan)
 	return ret
 }
 
@@ -76,15 +88,82 @@ func (nps *NaiveP2PServer) Stop() {
 	nps.ctrlChan <- struct{}{}
 }
 
+func (nps *NaiveP2PServer) Send(msg *NetMsg) {
+	nps.sendChan <- msg
+}
+
+func (nps *NaiveP2PServer) pingPong(dst common.NodeID, isPing bool) {
+	msg := &NetMsg{
+		Src:  nps.Id,
+		Dst:  dst,
+		Data: make([]byte, 0),
+	}
+	if isPing {
+		msg.Type = MSG_PING
+	} else {
+		msg.Type = MSG_PONG
+	}
+	nps.Send(msg)
+}
+
+func (nps *NaiveP2PServer) send(msg *NetMsg) {
+	var buf bytes.Buffer
+	enc := gob.NewEncoder(&buf)
+	enc.Encode(msg)
+	node := nps.DHT.Get(msg.Dst)
+	if node != nil {
+		node.Send(buf.Bytes())
+	} else {
+		nodes := nps.DHT.GetK()
+		for _, node = range nodes {
+			node.Send(buf.Bytes())
+		}
+	}
+}
+
+func (nps *NaiveP2PServer) connectUDP(handler P2PHandler) {
+
+}
+
 func (nps *NaiveP2PServer) run() {
 	for {
 		select {
+		case msg := <-nps.sendChan:
+			nps.send(msg)
 		case msg := <-nps.HandlerChan:
 			nps.DHT.Update(msg.Id)
+			var netMsg NetMsg
+			decoder := gob.NewDecoder(bytes.NewReader(msg.Data))
+			decoder.Decode(&netMsg)
+			//AUTH
+			if netMsg.Dst == nps.Id {
+				switch netMsg.Type {
+				case MSG_PING:
+					nps.pingPong(netMsg.Src, false)
+				case MSG_PONG:
+				case MSG_CONN:
+					decoder := gob.NewDecoder(bytes.NewReader(netMsg.Data))
+					var connMsg P2PConnMsg
+					decoder.Decode(&connMsg)
+					handler := nps.DHT.Get(netMsg.Src)
+					if handler == nil { //COUNTERPART POSITIVE
+						handler = nps.HandlerPool.Get()
+						handler.Init(&net.UDPAddr{IP: connMsg.SrcIP, Port: connMsg.HandlerPort}, netMsg.Src)
+						nps.DHT.Insert(handler)
+
+					}
+					handler.SetState(ST_PING)
+					handler.Start()
+				case MSG_APPLI:
+				}
+			} else {
+				nps.Send(&netMsg)
+			}
+
 		case state := <-nps.StateChan:
 			handler := state.Handler
 			if state.State == ST_PING {
-				handler.Send([]byte("ping"))
+				nps.pingPong(state.Id, true)
 			} else if state.State == ST_DISCONN {
 				handler.Stop()
 				nps.DHT.Remove(state.Id)
@@ -97,20 +176,22 @@ func (nps *NaiveP2PServer) run() {
 }
 
 type P2PHandler interface {
-	Init(*net.UDPAddr, uint64)
+	Init(*net.UDPAddr, common.NodeID)
 	Start()
 	Send([]byte)
 	Stop()
 	SetState(P2PHandlerState)
 	GetState() P2PHandlerState
-	GetId() uint64
+	GetSelfAddr() net.Addr
+	GetDstId() common.NodeID
 	Dispose()
 }
 
 type NaiveP2PHandler struct {
-	id           uint64
+	srcId        common.NodeID
+	dstId        common.NodeID
 	sock         *net.UDPConn
-	addr         *net.UDPAddr
+	dstAddr      *net.UDPAddr
 	state        P2PHandlerState
 	sendChan     chan []byte
 	recvChan     chan *NetResult
@@ -120,8 +201,9 @@ type NaiveP2PHandler struct {
 	ping2Disconn *time.Timer
 }
 
-func NewNaiveP2PHandler(sock *net.UDPConn, recvChan chan *NetResult, stateChan chan *PeerStateChange) *NaiveP2PHandler {
+func NewNaiveP2PHandler(id common.NodeID, sock *net.UDPConn, recvChan chan *NetResult, stateChan chan *PeerStateChange) *NaiveP2PHandler {
 	return &NaiveP2PHandler{
+		srcId:     id,
 		sock:      sock,
 		sendChan:  make(chan []byte, 1),
 		recvChan:  recvChan,
@@ -130,9 +212,41 @@ func NewNaiveP2PHandler(sock *net.UDPConn, recvChan chan *NetResult, stateChan c
 	}
 }
 
-func (nph *NaiveP2PHandler) Init(addr *net.UDPAddr, id uint64) {
-	nph.addr = addr
-	nph.id = id
+func (nph *NaiveP2PHandler) Init(addr *net.UDPAddr, id common.NodeID) {
+	nph.dstAddr = addr
+	nph.dstId = id
+}
+
+func (nph *NaiveP2PHandler) send(data []byte) {
+	msg := P2PMsg{
+		Id:     nph.srcId,
+		Data:   data,
+		Digest: make([]byte, 0),
+		Sign:   make([]byte, 0),
+	}
+	var buf bytes.Buffer
+	enc := gob.NewEncoder(&buf)
+	enc.Encode(msg)
+	nph.sock.WriteToUDP(buf.Bytes(), nph.dstAddr)
+}
+
+func (nph *NaiveP2PHandler) recv() chan *NetResult {
+	ret := make(chan *NetResult, 1)
+	go func(result chan *NetResult) {
+		ret := &NetResult{}
+		data := make([]byte, 1024)
+		var l int
+		l, ret.Addr, _ = nph.sock.ReadFromUDP(data)
+		data = data[:l]
+		decoder := gob.NewDecoder(bytes.NewReader(data))
+		var msg P2PMsg
+		decoder.Decode(&msg)
+		//AUTH
+		ret.Id = msg.Id
+		ret.Data = msg.Data
+		result <- ret
+	}(ret)
+	return ret
 }
 
 func (nph *NaiveP2PHandler) Send(data []byte) {
@@ -151,8 +265,12 @@ func (nph *NaiveP2PHandler) GetState() P2PHandlerState {
 	return nph.state
 }
 
-func (nph *NaiveP2PHandler) GetId() uint64 {
-	return nph.id
+func (nph *NaiveP2PHandler) GetSelfAddr() net.Addr {
+	return nph.sock.LocalAddr().String()
+}
+
+func (nph *NaiveP2PHandler) GetDstId() common.NodeID {
+	return nph.dstId
 }
 
 func (nph *NaiveP2PHandler) Start() {
@@ -170,8 +288,8 @@ func (nph *NaiveP2PHandler) run() {
 	for {
 		select {
 		case data := <-nph.sendChan:
-			Send(nph.sock, data, nph.addr)
-		case msg := <-Recv(nph.sock):
+			nph.send(data)
+		case msg := <-nph.recv():
 			nph.recvChan <- msg
 			nph.conn2Ping.Reset(100 * time.Second)
 			nph.ping2Disconn.Stop()
@@ -179,7 +297,7 @@ func (nph *NaiveP2PHandler) run() {
 			if ok {
 				nph.state = ST_PING
 				nph.stateChan <- &PeerStateChange{
-					Id:      nph.id,
+					Id:      nph.dstId,
 					State:   nph.state,
 					Handler: nph,
 				}
@@ -189,7 +307,7 @@ func (nph *NaiveP2PHandler) run() {
 			if ok {
 				nph.state = ST_DISCONN
 				nph.stateChan <- &PeerStateChange{
-					Id:      nph.id,
+					Id:      nph.dstId,
 					State:   nph.state,
 					Handler: nph,
 				}
@@ -208,6 +326,7 @@ type P2PHandlerPool interface {
 }
 
 type NaiveP2PHandlerPool struct {
+	id           common.NodeID
 	pooledCnt    int
 	maxPooledCnt int
 	handlerChan  chan *NetResult
@@ -215,8 +334,9 @@ type NaiveP2PHandlerPool struct {
 	pool         *list.List
 }
 
-func NewNaiveP2PHandlerPool(pooledCnt int, maxPooledCnt int, handlerChan chan *NetResult, stateChan chan *PeerStateChange) *NaiveP2PHandlerPool {
+func NewNaiveP2PHandlerPool(id common.NodeID, pooledCnt int, maxPooledCnt int, handlerChan chan *NetResult, stateChan chan *PeerStateChange) *NaiveP2PHandlerPool {
 	ret := &NaiveP2PHandlerPool{
+		id:           id,
 		pooledCnt:    pooledCnt,
 		maxPooledCnt: maxPooledCnt,
 		handlerChan:  handlerChan,
@@ -228,7 +348,7 @@ func NewNaiveP2PHandlerPool(pooledCnt int, maxPooledCnt int, handlerChan chan *N
 			IP:   net.IPv4(0, 0, 0, 0),
 			Port: 0,
 		})
-		ret.pool.PushFront(NewNaiveP2PHandler(sock, handlerChan, stateChan))
+		ret.pool.PushFront(NewNaiveP2PHandler(id, sock, handlerChan, stateChan))
 	}
 	return ret
 }
@@ -239,7 +359,7 @@ func (nphp *NaiveP2PHandlerPool) Get() P2PHandler {
 			IP:   net.IPv4(0, 0, 0, 0),
 			Port: 0,
 		})
-		return NewNaiveP2PHandler(sock, nphp.handlerChan, nphp.stateChan)
+		return NewNaiveP2PHandler(nphp.id, sock, nphp.handlerChan, nphp.stateChan)
 	}
 	return nphp.pool.Front().Value.(P2PHandler)
 }

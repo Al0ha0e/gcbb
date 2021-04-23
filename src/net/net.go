@@ -1,52 +1,39 @@
 package net
 
-import "net"
+import (
+	"net"
+
+	"github.com/gcbb/src/common"
+)
 
 type NetMsgType uint8
 
 const (
-	PS_PING  NetMsgType = iota
-	PS_CONN  NetMsgType = iota
-	PS_APPLI NetMsgType = iota
+	MSG_PING  NetMsgType = iota
+	MSG_PONG  NetMsgType = iota
+	MSG_CONN  NetMsgType = iota
+	MSG_APPLI NetMsgType = iota
 )
 
 type NetMsg struct {
-	Src    int64      `json:"src"`
-	Dst    int64      `json:"dst"`
-	Type   NetMsgType `json:"tp"`
-	Data   []byte     `json:"data"`
-	Digest []byte     `json:"digest"`
-	Sign   []byte     `json:"sign"`
-}
-
-func Send(sock *net.UDPConn, data []byte, addr *net.UDPAddr) {
-	sock.WriteToUDP(data, addr)
-}
-
-func Recv(sock *net.UDPConn) chan *NetResult {
-	ret := make(chan *NetResult, 1)
-	go func(result chan *NetResult) {
-		ret := &NetResult{
-			Data: make([]byte, 1024),
-		}
-		var l int
-		l, ret.Addr, _ = sock.ReadFromUDP(ret.Data)
-		ret.Data = ret.Data[:l]
-		result <- ret
-	}(ret)
-	return ret
+	Src  common.NodeID
+	Dst  common.NodeID
+	Type NetMsgType
+	Data []byte
+	//TODO: TTL
 }
 
 type NetResult struct {
+	Id   common.NodeID
 	Data []byte
 	Addr *net.UDPAddr
 }
 
 type NetHandler interface {
-	Send(int64, []byte)
+	Send(common.NodeID, []byte)
 	AddListener(string, chan *[]byte)
 	RemoveListener(string)
-	GetPeers(uint32) []int64
+	GetPeers(uint32) []common.NodeID
 	Run()
 }
 
@@ -59,7 +46,7 @@ func NewNaiveNetHandler() *NaiveNetHandler {
 	return ret
 }
 
-func (nnh *NaiveNetHandler) Send(peer int64, data []byte) {
+func (nnh *NaiveNetHandler) Send(peer common.NodeID, data []byte) {
 
 }
 
