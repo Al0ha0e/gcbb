@@ -6,13 +6,6 @@ import (
 	"time"
 )
 
-type PSMsgType uint8
-
-const (
-	PS_CONN  PSMsgType = iota
-	PS_ROUTE PSMsgType = iota
-)
-
 type P2PHandlerState uint8
 
 const (
@@ -22,11 +15,6 @@ const (
 	ST_DISCONN P2PHandlerState = iota
 )
 
-type P2PServerMsg struct {
-	Type PSMsgType `json:"tp"`
-	Data []byte    `json:"data"`
-}
-
 type P2PConnMsg struct {
 	SrcIP       net.IP `json:"sIP"`
 	DstId       int64  `json:"dId"`
@@ -35,7 +23,7 @@ type P2PConnMsg struct {
 
 type PeerInfo struct {
 	Id uint64
-	Ip net.UDPAddr
+	Ip *net.UDPAddr
 }
 
 type PeerStateChange struct {
@@ -53,33 +41,31 @@ type P2PServer interface {
 
 type NaiveP2PServer struct {
 	Id          int64
-	HandlerPool *list.List
+	HandlerPool P2PHandlerPool
 	DHT         DistributedHashTable
 	HandlerChan chan *NetResult
 	StateChan   chan *PeerStateChange
 	ctrlChan    chan struct{}
 }
 
-func NewNaiveP2PServer(id int64, pooledCnt int, dht DistributedHashTable) *NaiveP2PServer {
+func NewNaiveP2PServer(id int64, pooledCnt int, maxPooledCnt int, dht DistributedHashTable) *NaiveP2PServer {
 	ret := &NaiveP2PServer{
 		Id:          id,
-		HandlerPool: list.New().Init(),
 		DHT:         dht,
 		HandlerChan: make(chan *NetResult, 10),
 		StateChan:   make(chan *PeerStateChange, 10),
 	}
-	for i := 0; i < pooledCnt; i++ {
-		sock, _ := net.ListenUDP("udp4", &net.UDPAddr{
-			IP:   net.IPv4(0, 0, 0, 0),
-			Port: 0,
-		})
-		ret.HandlerPool.PushFront(NewNaiveP2PHandler(sock, ret.HandlerChan, ret.StateChan))
-	}
+	ret.HandlerPool = NewNaiveP2PHandlerPool(pooledCnt, maxPooledCnt, ret.HandlerChan, ret.StateChan)
 	return ret
 }
 
 func (nps *NaiveP2PServer) Init(peers []PeerInfo) {
-
+	for _, peer := range peers {
+		handler := nps.HandlerPool.Get()
+		handler.Init(peer.Ip, peer.Id)
+		nps.DHT.Insert(handler)
+		handler.Start()
+	}
 }
 
 func (nps *NaiveP2PServer) Start() {
@@ -102,7 +88,7 @@ func (nps *NaiveP2PServer) run() {
 			} else if state.State == ST_DISCONN {
 				handler.Stop()
 				nps.DHT.Remove(state.Id)
-				nps.HandlerPool.PushFront(handler)
+				nps.HandlerPool.Set(handler)
 			}
 		case <-nps.ctrlChan:
 			return
@@ -118,6 +104,7 @@ type P2PHandler interface {
 	SetState(P2PHandlerState)
 	GetState() P2PHandlerState
 	GetId() uint64
+	Dispose()
 }
 
 type NaiveP2PHandler struct {
@@ -175,6 +162,10 @@ func (nph *NaiveP2PHandler) Start() {
 	go nph.run()
 }
 
+func (nph *NaiveP2PHandler) Dispose() {
+	nph.sock.Close()
+}
+
 func (nph *NaiveP2PHandler) run() {
 	for {
 		select {
@@ -209,4 +200,54 @@ func (nph *NaiveP2PHandler) run() {
 			return
 		}
 	}
+}
+
+type P2PHandlerPool interface {
+	Get() P2PHandler
+	Set(P2PHandler)
+}
+
+type NaiveP2PHandlerPool struct {
+	pooledCnt    int
+	maxPooledCnt int
+	handlerChan  chan *NetResult
+	stateChan    chan *PeerStateChange
+	pool         *list.List
+}
+
+func NewNaiveP2PHandlerPool(pooledCnt int, maxPooledCnt int, handlerChan chan *NetResult, stateChan chan *PeerStateChange) *NaiveP2PHandlerPool {
+	ret := &NaiveP2PHandlerPool{
+		pooledCnt:    pooledCnt,
+		maxPooledCnt: maxPooledCnt,
+		handlerChan:  handlerChan,
+		stateChan:    stateChan,
+	}
+	ret.pool = list.New().Init()
+	for i := 0; i < pooledCnt; i++ {
+		sock, _ := net.ListenUDP("udp4", &net.UDPAddr{
+			IP:   net.IPv4(0, 0, 0, 0),
+			Port: 0,
+		})
+		ret.pool.PushFront(NewNaiveP2PHandler(sock, handlerChan, stateChan))
+	}
+	return ret
+}
+
+func (nphp *NaiveP2PHandlerPool) Get() P2PHandler {
+	if nphp.pool.Front() == nil {
+		sock, _ := net.ListenUDP("udp4", &net.UDPAddr{
+			IP:   net.IPv4(0, 0, 0, 0),
+			Port: 0,
+		})
+		return NewNaiveP2PHandler(sock, nphp.handlerChan, nphp.stateChan)
+	}
+	return nphp.pool.Front().Value.(P2PHandler)
+}
+
+func (nphp *NaiveP2PHandlerPool) Set(handler P2PHandler) {
+	if nphp.pool.Len() == nphp.maxPooledCnt {
+		handler.Dispose()
+		return
+	}
+	nphp.pool.PushFront(handler)
 }

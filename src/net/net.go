@@ -2,6 +2,23 @@ package net
 
 import "net"
 
+type NetMsgType uint8
+
+const (
+	PS_PING  NetMsgType = iota
+	PS_CONN  NetMsgType = iota
+	PS_APPLI NetMsgType = iota
+)
+
+type NetMsg struct {
+	Src    int64      `json:"src"`
+	Dst    int64      `json:"dst"`
+	Type   NetMsgType `json:"tp"`
+	Data   []byte     `json:"data"`
+	Digest []byte     `json:"digest"`
+	Sign   []byte     `json:"sign"`
+}
+
 func Send(sock *net.UDPConn, data []byte, addr *net.UDPAddr) {
 	sock.WriteToUDP(data, addr)
 }
@@ -9,19 +26,20 @@ func Send(sock *net.UDPConn, data []byte, addr *net.UDPAddr) {
 func Recv(sock *net.UDPConn) chan *NetResult {
 	ret := make(chan *NetResult, 1)
 	go func(result chan *NetResult) {
-		ret := &NetResult{}
-		ret.L, ret.Addr, _ = sock.ReadFromUDP(ret.Data)
+		ret := &NetResult{
+			Data: make([]byte, 1024),
+		}
+		var l int
+		l, ret.Addr, _ = sock.ReadFromUDP(ret.Data)
+		ret.Data = ret.Data[:l]
 		result <- ret
 	}(ret)
 	return ret
 }
 
 type NetResult struct {
-	Id     uint64
-	Status uint8
-	Data   []byte
-	Addr   *net.UDPAddr
-	L      int
+	Data []byte
+	Addr *net.UDPAddr
 }
 
 type NetHandler interface {
