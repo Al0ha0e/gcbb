@@ -26,5 +26,5 @@ func (nah *NaiveAuthHandler) Filter() {
 }
 
 func (nah *NaiveAuthHandler) Sign() {
-	rsa.SignPKCS1v15()
+	// rsa.SignPKCS1v15()
 }
