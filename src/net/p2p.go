@@ -20,7 +20,8 @@ const (
 )
 
 type P2PMsg struct {
-	Id     common.NodeID
+	Id common.NodeID
+	//TODO Target ID ,to prevent mistakes caused by udp reuse
 	Data   []byte
 	Digest []byte
 	Sign   []byte
@@ -47,7 +48,7 @@ type P2PServer interface {
 	Start()
 	Stop()
 	Send(NetMsg)
-	ConnectUDP() chan *NetResult
+	ConnectUDP(common.NodeID)
 }
 
 type NaiveP2PServer struct {
@@ -55,8 +56,9 @@ type NaiveP2PServer struct {
 	HandlerPool P2PHandlerPool
 	DHT         DistributedHashTable
 	sendChan    chan *NetMsg
-	HandlerChan chan *NetResult
-	StateChan   chan *PeerStateChange
+	connectChan chan common.NodeID
+	handlerChan chan *NetResult
+	stateChan   chan *PeerStateChange
 	ctrlChan    chan struct{}
 	encoder     NetEncoder
 }
@@ -66,12 +68,12 @@ func NewNaiveP2PServer(id common.NodeID, pooledCnt int, maxPooledCnt int, dht Di
 		Id:          id,
 		DHT:         dht,
 		sendChan:    make(chan *NetMsg, 10),
-		HandlerChan: make(chan *NetResult, 10),
-		StateChan:   make(chan *PeerStateChange, 10),
+		handlerChan: make(chan *NetResult, 10),
+		stateChan:   make(chan *PeerStateChange, 10),
 		encoder:     encoder,
 	}
 	//TODO: INJECT POOL
-	ret.HandlerPool = NewNaiveP2PHandlerPool(id, pooledCnt, maxPooledCnt, ret.HandlerChan, ret.StateChan, ret.encoder)
+	ret.HandlerPool = NewNaiveP2PHandlerPool(id, pooledCnt, maxPooledCnt, ret.handlerChan, ret.stateChan, ret.encoder)
 	return ret
 }
 
@@ -128,6 +130,10 @@ func (nps *NaiveP2PServer) pingPong(dst common.NodeID, isPing bool) {
 	nps.Send(msg)
 }
 
+func (nps *NaiveP2PServer) ConnectUDP(dst common.NodeID) {
+	nps.connectChan <- dst
+}
+
 func (nps *NaiveP2PServer) connectUDP(dst common.NodeID, handler P2PHandler) {
 	connMsg := handler.GenConnMsg()
 	msg := &NetMsg{
@@ -145,7 +151,14 @@ func (nps *NaiveP2PServer) run() {
 		select {
 		case msg := <-nps.sendChan:
 			nps.send(msg)
-		case msg := <-nps.HandlerChan:
+		case id := <-nps.connectChan:
+			if !nps.DHT.Has(id) {
+				handler := nps.HandlerPool.Get()
+				handler.SetState(ST_WAIT)
+				nps.DHT.Insert(handler)
+				nps.connectUDP(id, handler)
+			}
+		case msg := <-nps.handlerChan:
 			nps.DHT.Update(msg.Id)
 			var netMsg NetMsg
 			nps.encoder.Decode(msg.Data, &netMsg)
@@ -163,13 +176,13 @@ func (nps *NaiveP2PServer) run() {
 						handler = nps.HandlerPool.Get()
 						handler.SetState(ST_WAIT)
 						nps.DHT.Insert(handler)
+						nps.connectUDP(netMsg.Src, handler)
 					}
 					if handler.GetState() == ST_WAIT {
 						handler.Init(&net.UDPAddr{
 							IP:   connMsg.IP,
 							Port: connMsg.Port,
 						}, netMsg.Src)
-						//connectUDP()
 						handler.SetState(ST_PING)
 						handler.Start()
 					}
@@ -182,7 +195,7 @@ func (nps *NaiveP2PServer) run() {
 				}
 			}
 
-		case state := <-nps.StateChan:
+		case state := <-nps.stateChan:
 			handler := state.Handler
 			if state.State == ST_PING {
 				nps.pingPong(state.Id, true)
