@@ -51,9 +51,16 @@ func (gne *GobNetEncoder) Decode(data []byte, val interface{}) {
 	decoder.Decode(val)
 }
 
-//TODO
 func GetSelfPubIp() net.IP {
-	return net.IP{}
+	socket, _ := net.DialUDP("udp4", nil, &net.UDPAddr{
+		IP:   net.IPv4(127, 0, 0, 1),
+		Port: 2233,
+	})
+	socket.Write([]byte("test"))
+	data := make([]byte, 256)
+	l, _, _ := socket.ReadFromUDP(data)
+	data = data[:l]
+	return net.ParseIP(string(data))
 }
 
 type NetHandler interface {

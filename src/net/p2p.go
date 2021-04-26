@@ -5,6 +5,8 @@ import (
 	"container/list"
 	"encoding/gob"
 	"net"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gcbb/src/common"
@@ -300,8 +302,11 @@ func (nph *NaiveP2PHandler) GetState() P2PHandlerState {
 
 //TODO
 func (nph *NaiveP2PHandler) GenConnMsg() *P2PConnMsg {
+	portStr := strings.Split(nph.sock.LocalAddr().String(), ":")[1]
+	port, _ := strconv.Atoi(portStr)
 	return &P2PConnMsg{
-		IP: GetSelfPubIp(),
+		IP:   GetSelfPubIp(),
+		Port: port,
 	}
 }
 
@@ -320,6 +325,11 @@ func (nph *NaiveP2PHandler) Dispose() {
 	nph.sock.Close()
 }
 
+//TODO
+// 状态有问题，初始化只能获取自身IP，获取自身之后只可以PING，连接状态可以发包
+//固定每10秒一次ping，不设pong
+//有消息重置超时直接断连
+//注意channel堵塞
 func (nph *NaiveP2PHandler) run() {
 	for {
 		select {
