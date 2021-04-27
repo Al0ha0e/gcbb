@@ -12,6 +12,11 @@ import (
 	"github.com/gcbb/src/common"
 )
 
+var REF_ADDR = &net.UDPAddr{
+	IP: net.IPv4(127,0,0,1),
+	Port: 2233,
+}
+
 type P2PHandlerState uint8
 
 const (
@@ -124,11 +129,12 @@ func (nps *NaiveP2PServer) pingPong(dst common.NodeID, isPing bool) {
 		Data: make([]byte, 0),
 		TTL:  MAX_TTL,
 	}
-	if isPing {
-		msg.Type = MSG_PING
-	} else {
-		msg.Type = MSG_PONG
-	}
+	msg.Type = MSG_PING
+	//if isPing {
+	//	msg.Type = MSG_PING
+	//} else {
+	//	msg.Type = MSG_PONG
+	//}
 	nps.Send(msg)
 }
 
@@ -168,8 +174,8 @@ func (nps *NaiveP2PServer) run() {
 			if netMsg.Dst == nps.Id {
 				switch netMsg.Type {
 				case MSG_PING:
-					nps.pingPong(netMsg.Src, false)
-				case MSG_PONG:
+					//nps.pingPong(netMsg.Src, false)
+				//case MSG_PONG:
 				case MSG_CONN:
 					var connMsg P2PConnMsg
 					nps.encoder.Decode(netMsg.Data, &connMsg)
@@ -199,7 +205,8 @@ func (nps *NaiveP2PServer) run() {
 
 		case state := <-nps.stateChan:
 			handler := state.Handler
-			if state.State == ST_PING {
+			if state.State == ST_CONN{
+			} else if state.State == ST_PING {
 				nps.pingPong(state.Id, true)
 			} else if state.State == ST_DISCONN {
 				handler.Stop()
@@ -229,26 +236,42 @@ type NaiveP2PHandler struct {
 	dstId        common.NodeID
 	sock         *net.UDPConn
 	dstAddr      *net.UDPAddr
+	pubIp		 net.IP
+	pubPort		 int
 	state        P2PHandlerState
 	sendChan     chan []byte
 	recvChan     chan *NetResult
 	stateChan    chan *PeerStateChange
 	ctrlChan     chan struct{}
-	conn2Ping    *time.Timer
-	ping2Disconn *time.Timer
+	pingTicker   *time.Ticker
+	disconnTimer *time.Timer
 	encoder      NetEncoder
 }
 
 func NewNaiveP2PHandler(id common.NodeID, sock *net.UDPConn, recvChan chan *NetResult, stateChan chan *PeerStateChange, encoder NetEncoder) *NaiveP2PHandler {
-	return &NaiveP2PHandler{
+	
+	ret := &NaiveP2PHandler{
 		srcId:     id,
 		sock:      sock,
-		sendChan:  make(chan []byte, 1),
+		sendChan:  make(chan []byte, 10),
 		recvChan:  recvChan,
 		stateChan: stateChan,
-		ctrlChan:  make(chan struct{}, 1),
+		ctrlChan:  make(chan struct{}, 2),
 		encoder:   encoder,
 	}
+	ret.getSelfPubIp()
+	return ret
+}
+
+//CAUTION !!! BLOCK
+func (nph *NaiveP2PHandler) getSelfPubIp(){
+	nph.sock.WriteToUDP([]byte(""), REF_ADDR)
+	data := make([]byte,256)
+	l,_,_ := nph.sock.ReadFromUDP(data)
+	data = data[:l]
+	ipPort := strings.Split(string(data),":")
+	nph.pubIp = net.ParseIP(ipPort[0])
+	nph.pubPort,_ = strconv.Atoi(ipPort[1])
 }
 
 func (nph *NaiveP2PHandler) Init(addr *net.UDPAddr, id common.NodeID) {
@@ -297,16 +320,14 @@ func (nph *NaiveP2PHandler) SetState(state P2PHandlerState) {
 }
 
 func (nph *NaiveP2PHandler) GetState() P2PHandlerState {
+	//TODO: RWLock
 	return nph.state
 }
 
-//TODO
 func (nph *NaiveP2PHandler) GenConnMsg() *P2PConnMsg {
-	portStr := strings.Split(nph.sock.LocalAddr().String(), ":")[1]
-	port, _ := strconv.Atoi(portStr)
 	return &P2PConnMsg{
-		IP:   GetSelfPubIp(),
-		Port: port,
+		IP:   nph.pubIp,
+		Port: nph.pubPort,
 	}
 }
 
@@ -315,9 +336,9 @@ func (nph *NaiveP2PHandler) GetDstId() common.NodeID {
 }
 
 func (nph *NaiveP2PHandler) Start() {
-	nph.conn2Ping = time.NewTimer(1 * time.Second)
-	nph.ping2Disconn = time.NewTimer(100 * time.Second)
-	nph.ping2Disconn.Stop()
+	nph.pingTicker = time.NewTicker(10 * time.Second)
+	nph.disconnTimer = time.NewTimer(100 * time.Second)
+	nph.disconnTimer.Stop()
 	go nph.run()
 }
 
@@ -327,30 +348,36 @@ func (nph *NaiveP2PHandler) Dispose() {
 
 //TODO
 // 状态有问题，初始化只能获取自身IP，获取自身之后只可以PING，连接状态可以发包
-//固定每10秒一次ping，不设pong
-//有消息重置超时直接断连
 //注意channel堵塞
+//TIMER HARDCODE
 func (nph *NaiveP2PHandler) run() {
 	for {
 		select {
 		case data := <-nph.sendChan:
 			nph.send(data)
 		case msg := <-nph.recv():
-			nph.SetState(ST_CONN)
-			nph.conn2Ping.Reset(100 * time.Second)
-			nph.ping2Disconn.Stop()
-			nph.recvChan <- msg
-		case _, ok := <-nph.conn2Ping.C:
-			if ok {
-				nph.SetState(ST_PING)
+			if nph.GetState() != ST_CONN{
+				nph.SetState(ST_CONN)
 				nph.stateChan <- &PeerStateChange{
-					Id:      nph.dstId,
-					State:   nph.state,
+					Id: nph.dstId,
+					State: nph.state,
 					Handler: nph,
 				}
-				nph.ping2Disconn = time.NewTimer(100 * time.Second)
 			}
-		case _, ok := <-nph.ping2Disconn.C:
+			//nph.conn2Ping.Reset(100 * time.Second)
+			nph.disconnTimer.Reset(100 * time.Second)
+			nph.recvChan <- msg
+		case _, ok := <-nph.pingTicker.C:
+			if ok {
+				//nph.SetState(ST_PING)
+				nph.stateChan <- &PeerStateChange{
+					Id:      nph.dstId,
+					State:   ST_PING,
+					Handler: nph,
+				}
+				//nph.ping2Disconn = time.NewTimer(100 * time.Second)
+			}
+		case _, ok := <-nph.disconnTimer.C:
 			if ok {
 				nph.SetState(ST_DISCONN)
 				nph.stateChan <- &PeerStateChange{
@@ -360,8 +387,8 @@ func (nph *NaiveP2PHandler) run() {
 				}
 			}
 		case <-nph.ctrlChan:
-			nph.conn2Ping.Stop()
-			nph.ping2Disconn.Stop()
+			nph.pingTicker.Stop()
+			nph.disconnTimer.Stop()
 			return
 		}
 	}
