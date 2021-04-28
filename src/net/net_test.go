@@ -8,13 +8,13 @@ import (
 func TestEncode(t *testing.T) {
 	var coder GobNetEncoder
 	val1 := P2PMsg{
-		Id: [20]byte{1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1},
+		SrcId: [20]byte{1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1},
 	}
-	t.Log(val1.Id)
+	t.Log(val1.SrcId)
 	data := coder.Encode(&val1)
 	val2 := P2PMsg{}
 	coder.Decode(data, &val2)
-	t.Log(val2.Id)
+	t.Log(val2.SrcId)
 
 	val3 := net.UDPAddr{
 		IP:   net.IPv4(1, 2, 3, 4),

@@ -28,8 +28,8 @@ const (
 )
 
 type P2PMsg struct {
-	Id common.NodeID
-	//TODO Target ID ,to prevent mistakes caused by udp reuse
+	SrcId  common.NodeID
+	DstId  common.NodeID
 	Data   []byte
 	Digest []byte
 	Sign   []byte
@@ -116,7 +116,7 @@ func (nps *NaiveP2PServer) send(msg *NetMsg) {
 	if handler != nil && handler.GetState() == ST_CONN {
 		handler.Send(buf.Bytes())
 	} else {
-		handlers := nps.DHT.GetK()
+		handlers := nps.DHT.GetK(msg.Dst)
 		for _, handler = range handlers {
 			if handler.GetState() == ST_CONN {
 				handler.Send(buf.Bytes())
@@ -287,7 +287,8 @@ func (nph *NaiveP2PHandler) Init(addr *net.UDPAddr, id common.NodeID) {
 
 func (nph *NaiveP2PHandler) send(data []byte) {
 	msg := P2PMsg{
-		Id:     nph.srcId,
+		SrcId:  nph.srcId,
+		DstId:  nph.dstId,
 		Data:   data,
 		Digest: make([]byte, 0),
 		Sign:   make([]byte, 0),
@@ -298,17 +299,22 @@ func (nph *NaiveP2PHandler) send(data []byte) {
 func (nph *NaiveP2PHandler) recv() chan *NetResult {
 	ret := make(chan *NetResult, 1)
 	go func(result chan *NetResult) {
-		ret := &NetResult{}
-		data := make([]byte, 1024)
-		var l int
-		l, ret.Addr, _ = nph.sock.ReadFromUDP(data)
-		data = data[:l]
-		var msg P2PMsg
-		nph.encoder.Decode(data, &msg)
-		//AUTH
-		ret.Id = msg.Id
-		ret.Data = msg.Data
-		result <- ret
+		for {
+			ret := &NetResult{}
+			data := make([]byte, 1024)
+			var l int
+			l, ret.Addr, _ = nph.sock.ReadFromUDP(data)
+			data = data[:l]
+			var msg P2PMsg
+			nph.encoder.Decode(data, &msg)
+			//AUTH
+			if msg.DstId == nph.srcId {
+				ret.Id = msg.SrcId
+				ret.Data = msg.Data
+				result <- ret
+				return
+			}
+		}
 	}(ret)
 	return ret
 }
@@ -359,7 +365,6 @@ func (nph *NaiveP2PHandler) Dispose() {
 }
 
 //TODO
-// 状态有问题，初始化只能获取自身IP，获取自身之后只可以PING，连接状态可以发包
 //TIMER HARDCODE
 func (nph *NaiveP2PHandler) run() {
 	for {
