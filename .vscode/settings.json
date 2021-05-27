@@ -19,5 +19,6 @@
             "command": "extension.execute",
             "priority": 4
         }
-    ]
+    ],
+    "python.pythonPath": "C:\\python37\\python3.exe"
 }
