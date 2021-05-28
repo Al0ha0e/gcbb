@@ -40,5 +40,5 @@ func TestNewHandler(t *testing.T) {
 func TestNewServer(t *testing.T) {
 	id := [20]byte{0}
 	dht := NewKadDHT(id, 5)
-	NewNaiveP2PServer(id, 2, 3, dht, &GobNetEncoder{})
+	NewNaiveP2PServer(id, 2, 3, dht, &GobNetEncoder{}, 8090)
 }
