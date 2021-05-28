@@ -119,6 +119,7 @@ func (nps *NaiveP2PServer) Stop() {
 
 func (nps *NaiveP2PServer) Send(msg *NetMsg) {
 	go func() {
+		fmt.Println("SEND0")
 		nps.sendChan <- msg
 	}()
 }
@@ -130,14 +131,18 @@ func (nps *NaiveP2PServer) ConnectUDP(dst common.NodeID) {
 }
 
 func (nps *NaiveP2PServer) send(msg *NetMsg) {
+	fmt.Println("SEND1", msg.Dst)
 	addr, has := nps.staticPeers[msg.Dst]
 	if has {
-		nps.staticHandler.Send(nps.encoder.Encode(msg), addr)
+		fmt.Println("STATIC SEND")
+		nps.staticHandler.Send(nps.encoder.Encode(msg), &PeerInfo{Id: msg.Dst, Ip: addr})
 		return
 	}
 
 	handler := nps.DHT.Get(msg.Dst)
-	if handler != nil && handler.GetState() == ST_CONN {
+	state := handler.GetState()
+	fmt.Println("STATE WHEN SEND", state)
+	if handler != nil && (state == ST_CONN || state == ST_PING) {
 		handler.Send(nps.encoder.Encode(msg), nil)
 	} else {
 		handlers := nps.DHT.GetK(msg.Dst)
@@ -167,6 +172,7 @@ func (nps *NaiveP2PServer) pingPong(dst common.NodeID, isPing bool) {
 
 func (nps *NaiveP2PServer) connectUDP(dst common.NodeID, handler P2PHandler) {
 	//TODO: MULTIPLE CONNECT MSG
+	fmt.Println("TRY SEND CONNECT MSG TO", dst)
 	connMsg := handler.GenConnMsg()
 	msg := &NetMsg{
 		Src:  nps.Id,
@@ -188,6 +194,7 @@ func (nps *NaiveP2PServer) run() {
 			if !nps.DHT.Has(id) {
 				handler := nps.HandlerPool.Get()
 				//TODO: PEER FAIL BLACKLIST
+				handler.Init(nil, id)
 				nps.DHT.Insert(handler)
 				nps.connectUDP(id, handler)
 				handler.Start(false)
@@ -259,7 +266,7 @@ type P2PHandler interface {
 	Init(addr *net.UDPAddr, id common.NodeID)
 	Start(isStatic bool)
 	Connect()
-	Send(data []byte, addr *net.UDPAddr)
+	Send(data []byte, peer *PeerInfo)
 	Stop()
 	SetState(state P2PHandlerState)
 	GetState() P2PHandlerState
@@ -279,7 +286,7 @@ type NaiveP2PHandler struct {
 	stateLock sync.RWMutex
 	sendChan  chan *struct {
 		data []byte
-		addr *net.UDPAddr
+		peer *PeerInfo
 	}
 	recvChan     chan *NetResult
 	stateChan    chan *PeerStateChange
@@ -297,7 +304,7 @@ func NewNaiveP2PHandler(id common.NodeID, sock *net.UDPConn, recvChan chan *NetR
 		sock:  sock,
 		sendChan: make(chan *struct {
 			data []byte
-			addr *net.UDPAddr
+			peer *PeerInfo
 		}, 10),
 		recvChan:    recvChan,
 		stateChan:   stateChan,
@@ -335,12 +342,12 @@ func (nph *NaiveP2PHandler) Connect() {
 	}()
 }
 
-func (nph *NaiveP2PHandler) Send(data []byte, addr *net.UDPAddr) {
+func (nph *NaiveP2PHandler) Send(data []byte, peer *PeerInfo) {
 	go func() {
 		nph.sendChan <- &struct {
 			data []byte
-			addr *net.UDPAddr
-		}{data, addr}
+			peer *PeerInfo
+		}{data, peer}
 	}()
 }
 
@@ -404,7 +411,7 @@ func (nph *NaiveP2PHandler) getSelfPubIp() {
 	}
 }
 
-func (nph *NaiveP2PHandler) send(data []byte, addr *net.UDPAddr) {
+func (nph *NaiveP2PHandler) send(data []byte, peer *PeerInfo) {
 	msg := P2PMsg{
 		SrcId:  nph.srcId,
 		DstId:  nph.dstId,
@@ -412,10 +419,13 @@ func (nph *NaiveP2PHandler) send(data []byte, addr *net.UDPAddr) {
 		Digest: make([]byte, 0),
 		Sign:   make([]byte, 0),
 	}
-	if addr != nil {
-		nph.sock.WriteToUDP(nph.encoder.Encode(&msg), addr)
+	if peer != nil {
+		msg.DstId = peer.Id
+		nph.sock.WriteToUDP(nph.encoder.Encode(&msg), peer.Ip)
+		fmt.Println("static send to", peer.Id, peer.Ip)
 	} else {
 		nph.sock.WriteToUDP(nph.encoder.Encode(&msg), nph.dstAddr)
+		fmt.Println("send to", nph.dstId, nph.dstAddr)
 	}
 
 }
@@ -432,6 +442,7 @@ func (nph *NaiveP2PHandler) recv() chan *NetResult {
 			var msg P2PMsg
 			nph.encoder.Decode(data, &msg)
 			//AUTH
+			fmt.Println("RECV!! FROM", msg.SrcId, "TO", msg.DstId)
 			if msg.DstId == nph.srcId {
 				ret.Id = msg.SrcId
 				ret.Data = msg.Data
@@ -454,7 +465,7 @@ func (nph *NaiveP2PHandler) run(isStatic bool) {
 					nph.recvChan <- msg
 				}()
 			case info := <-nph.sendChan:
-				nph.send(info.data, info.addr)
+				nph.send(info.data, info.peer)
 			case <-nph.ctrlChan:
 				return
 			}
