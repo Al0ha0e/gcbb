@@ -17,17 +17,17 @@ func TestNewKadDHT(t *testing.T) {
 }
 
 func TestGetKDist(t *testing.T) {
-	id1 := common.NodeID{0, 1, 0}
-	id2 := common.NodeID{0, 4, 0}
-	dist := getKDist(id1, id2)
-	t.Log(id1)
-	t.Log(id2)
-	t.Log("DIST", dist)
+	ids := []common.NodeID{common.NodeID{1}, common.NodeID{2}, common.NodeID{3}}
+	for i := 0; i < 3; i++ {
+		id1 := ids[i]
+		id2 := ids[(i+1)%3]
+		t.Log(id1, id2, getKDist(id1, id2), getKDist(id2, id1))
+	}
 }
 
 func TestInsert(t *testing.T) {
 	id1 := common.NodeID{0, 1, 0}
-	id2 := common.NodeID{0, 4, 9}
+	id2 := [20]byte{4}
 	var dht DistributedHashTable = NewKadDHT(id1, 10)
 	handler := &NaiveP2PHandler{
 		dstId: id2,

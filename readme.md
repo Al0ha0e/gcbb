@@ -13,10 +13,10 @@
 https://hub.docker.com/repository/docker/al0ha0e/gcbb
 
 #### Build
-- amd64 `docker build -t al0ha0e/gcbb:v1 .`
+- amd64 `docker build -t <username>/gcbb:<version> .`
 
-- arm64 `docker buildx build --platform linux/arm64 --load -t al0ha0e/gcbb:v1_arm64 .`
+- arm64 `docker buildx build --platform linux/arm64 --load -t <username>/gcbb:<version>_arm64 .`
 
 #### Run
 
-`docker run --network=host -it al0ha0e/gcbb:<Version>`
+`docker run --network=host -it al0ha0e/gcbb:<version>`

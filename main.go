@@ -5,6 +5,7 @@ import (
 	"net"
 	"os"
 	"strconv"
+	"time"
 
 	gnet "github.com/gcbb/src/net"
 )
@@ -16,22 +17,25 @@ func main() {
 	id := [20]byte{byte(selfid)}
 	pid := [20]byte{byte(peerid)}
 	fmt.Println(id, pid)
-	dht := gnet.NewKadDHT(pid, 5)
+	dht := gnet.NewKadDHT(id, 5)
 	server := gnet.NewNaiveP2PServer(id, 3, 5, dht, &gnet.GobNetEncoder{}, staticPort)
 	if id == [20]byte{3} {
 		server.Start()
 	} else {
 		pInfo := &gnet.PeerInfo{
-			Id: [20]byte{3},
-			// Ip: &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 8090},
-			Ip: &net.UDPAddr{IP: net.IPv4(123, 60, 211, 219), Port: 8090},
+			PeerId: [20]byte{3},
+			PeerIp: &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 8090},
+			// PeerIp: &net.UDPAddr{IP: net.IPv4(123, 60, 211, 219), Port: 8090},
 		}
 		server.Init([]*gnet.PeerInfo{pInfo})
 		server.Start()
-		// if selfid < peerid {
-		// 	fmt.Println("JOASASJ")
-		// 	server.ConnectUDP(pid)
-		// }
+
+		if selfid < peerid {
+			fmt.Println("JOASASJ")
+			tmer := time.NewTimer(20 * time.Second)
+			<-tmer.C
+			server.ConnectUDP(pid)
+		}
 	}
 
 	c := make(chan int, 1)

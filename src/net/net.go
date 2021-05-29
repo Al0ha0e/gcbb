@@ -13,24 +13,22 @@ type NetMsgType uint8
 const MAX_TTL = 65
 
 const (
-	MSG_PING  NetMsgType = iota
-	MSG_PONG  NetMsgType = iota
 	MSG_CONN  NetMsgType = iota
 	MSG_APPLI NetMsgType = iota
 )
 
 type NetMsg struct {
-	Src  common.NodeID
-	Dst  common.NodeID
-	Type NetMsgType
-	Data []byte
-	TTL  uint32
+	SrcId common.NodeID
+	DstId common.NodeID
+	Type  NetMsgType
+	Data  []byte
+	TTL   uint32
 }
 
 type NetResult struct {
-	Id   common.NodeID
-	Data []byte
-	Addr *net.UDPAddr
+	SrcId   common.NodeID
+	Data    []byte
+	SrcAddr *net.UDPAddr
 }
 
 type NetEncoder interface {

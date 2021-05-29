@@ -2,6 +2,7 @@ package net
 
 import (
 	"container/list"
+	"fmt"
 
 	"github.com/gcbb/src/common"
 )
@@ -43,7 +44,7 @@ func getKDist(id1 common.NodeID, id2 common.NodeID) int {
 		if diffByte > 0 {
 			for j := 7; j >= 0; j-- {
 				if diffByte&(1<<j) > 0 {
-					return i*8 + j
+					return i*8 + j + 1
 				}
 			}
 		}
@@ -53,12 +54,15 @@ func getKDist(id1 common.NodeID, id2 common.NodeID) int {
 
 func (dn *KadDHT) Insert(handler P2PHandler) {
 	dist := getKDist(handler.GetDstId(), dn.Id)
+	fmt.Println("INSERT", handler.GetDstId(), dist)
 	dn.KBucket[dist].PushFront(handler)
 }
 
 func (dn *KadDHT) Get(id common.NodeID) P2PHandler {
 	dist := getKDist(id, dn.Id)
+	fmt.Println("GET", id, dist)
 	for node := dn.KBucket[dist].Front(); node != nil; node = node.Next() {
+		fmt.Println("TRY FIND", node.Value.(P2PHandler).GetDstId())
 		if node.Value.(P2PHandler).GetDstId() == id {
 			return node.Value.(P2PHandler)
 		}
