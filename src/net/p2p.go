@@ -449,10 +449,10 @@ func (nph *NaiveP2PHandler) recv() chan *NetResult {
 			data = data[:l]
 			nph.encoder.Decode(data, &msg)
 			//AUTH
-			fmt.Println("RECV!! FROM", msg.SrcId, "TO", msg.DstId, l)
+			//fmt.Println("RECV!! FROM", msg.SrcId, "TO", msg.DstId, l)
 			if msg.DstId == nph.srcId {
 				state := nph.GetState()
-				fmt.Println("STATE WHEN RECV", state)
+				//fmt.Println("STATE WHEN RECV", state)
 				if state == ST_DISCONN {
 					return
 				}
@@ -469,7 +469,7 @@ func (nph *NaiveP2PHandler) recv() chan *NetResult {
 				nph.disconnTimer.Reset(100 * time.Second)
 
 				if msg.Type == PM_PING {
-					fmt.Println("PING RECV FROM", msg.SrcId, ret.SrcAddr)
+					//fmt.Println("PING RECV FROM", msg.SrcId, ret.SrcAddr)
 					result <- nil
 					return
 				} else {
@@ -492,10 +492,12 @@ func (nph *NaiveP2PHandler) ping() {
 //TODO
 //TIMER HARDCODE
 func (nph *NaiveP2PHandler) run(isStatic bool) {
+	msgChan := nph.recv()
 	if isStatic {
 		for {
 			select {
-			case msg := <-nph.recv():
+			case msg := <-msgChan:
+				msgChan = nph.recv()
 				if msg == nil {
 					continue
 				}
@@ -522,7 +524,8 @@ func (nph *NaiveP2PHandler) run(isStatic bool) {
 				nph.disconnTimer.Reset(100 * time.Second)
 				nph.SetState(ST_PING)
 			}
-		case msg := <-nph.recv():
+		case msg := <-msgChan:
+			msgChan = nph.recv()
 			if msg == nil {
 				//TODO: DEBUG
 				continue
