@@ -13,8 +13,9 @@ type NetMsgType uint8
 const MAX_TTL = 65
 
 const (
-	MSG_CONN  NetMsgType = iota
-	MSG_APPLI NetMsgType = iota
+	MSG_CONN   NetMsgType = iota
+	MSG_SINGLE NetMsgType = iota
+	MSG_MULTI  NetMsgType = iota
 )
 
 type NetMsg struct {
@@ -91,6 +92,6 @@ func (nnh *NaiveNetHandler) RemoveListener(lid string) {
 }
 
 func Run() {
-	for {
-	}
+	// for {
+	// }
 }

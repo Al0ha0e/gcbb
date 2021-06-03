@@ -17,7 +17,7 @@ func TestNewKadDHT(t *testing.T) {
 }
 
 func TestGetKDist(t *testing.T) {
-	ids := []common.NodeID{common.NodeID{1}, common.NodeID{2}, common.NodeID{3}}
+	ids := []common.NodeID{{1}, {2}, {3}}
 	for i := 0; i < 3; i++ {
 		id1 := ids[i]
 		id2 := ids[(i+1)%3]

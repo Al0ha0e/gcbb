@@ -13,8 +13,8 @@ import (
 )
 
 var REF_ADDR = &net.UDPAddr{
-	IP: net.IPv4(123, 60, 211, 219),
-	// IP:   net.IPv4(127, 0, 0, 1),
+	// IP: net.IPv4(123, 60, 211, 219),
+	IP:   net.IPv4(127, 0, 0, 1),
 	Port: 2233,
 }
 
@@ -112,7 +112,6 @@ func NewNaiveP2PServer(
 }
 
 func (nps *NaiveP2PServer) Init(peers []*PeerInfo) {
-	//TODO: DEBUG
 	for _, peer := range peers {
 		nps.staticPeers[peer.PeerId] = peer.PeerIp
 		nps.ConnectUDP(peer.PeerId)
@@ -222,7 +221,10 @@ func (nps *NaiveP2PServer) run() {
 						}, netMsg.SrcId)
 						handler.Connect()
 					}
-				case MSG_APPLI:
+				case MSG_SINGLE:
+					continue
+				case MSG_MULTI:
+					continue
 				}
 			} else {
 				fmt.Println("ROUTE TO", netMsg.DstId, netMsg.TTL)
@@ -237,19 +239,20 @@ func (nps *NaiveP2PServer) run() {
 			handler := state.Handler
 			if state.State == ST_CONN {
 				fmt.Println("CONNECT!", nps.SelfId, dstId)
+				//TODO Init Multi Handler
 			} else if state.State == ST_WAIT {
-				fmt.Println("RETRY CONNECT")
+				fmt.Println("POSITIVE RETRY CONNECT")
+				nps.connectUDP(dstId, handler)
+			} else if state.State == ST_PING {
+				fmt.Println("PASSIVE RETRY CONNECT")
 				nps.connectUDP(dstId, handler)
 			} else if state.State == ST_DISCONN {
 				fmt.Println("GG DISCONN")
 				handler.Stop()
 				nps.DHT.Remove(dstId)
 				nps.HandlerPool.Set(handler)
+				//TODO Dispose Multi Handler
 			}
-			// }else if state.State == ST_PING {
-			// 	fmt.Println("SEND PING")
-			// 	nps.pingPong(dstId, true)
-			// }
 		case <-nps.ctrlChan:
 			fmt.Println("STOP")
 			nps.staticHandler.Stop()
@@ -292,6 +295,7 @@ type NaiveP2PHandler struct {
 	connectChan  chan struct{}
 	pingTicker   *time.Ticker
 	waitTicker   *time.Ticker
+	waitTicker2  *time.Ticker
 	disconnTimer *time.Timer
 	encoder      NetEncoder
 }
@@ -325,6 +329,7 @@ func (nph *NaiveP2PHandler) Init(dstAddr *net.UDPAddr, dstId common.NodeID) {
 func (nph *NaiveP2PHandler) Start(isStatic bool) {
 	nph.disconnTimer = time.NewTimer(100 * time.Second)
 	nph.waitTicker = time.NewTicker(10 * time.Second)
+	nph.waitTicker2 = time.NewTicker(20 * time.Second)
 	nph.pingTicker = time.NewTicker(10 * time.Second)
 	if isStatic {
 		nph.SetState(ST_CONN)
@@ -333,6 +338,7 @@ func (nph *NaiveP2PHandler) Start(isStatic bool) {
 	} else {
 		nph.SetState(ST_WAIT)
 	}
+	nph.waitTicker2.Stop()
 	nph.pingTicker.Stop()
 	go nph.run(isStatic)
 }
@@ -463,20 +469,22 @@ func (nph *NaiveP2PHandler) recv() chan *NetResult {
 				if state == ST_DISCONN {
 					return
 				}
-				if state == ST_PING {
-					nph.SetState(ST_CONN)
-					go func() {
-						nph.stateChan <- &PeerStateChange{
-							PeerId:  nph.dstId,
-							State:   nph.state,
-							Handler: nph,
-						}
-					}()
-				}
+
 				nph.disconnTimer.Reset(100 * time.Second)
 
 				if msg.Type == PM_PING {
 					//fmt.Println("PING RECV FROM", msg.SrcId, ret.SrcAddr)
+					if state == ST_PING {
+						nph.waitTicker2.Stop()
+						nph.SetState(ST_CONN)
+						go func() {
+							nph.stateChan <- &PeerStateChange{
+								PeerId:  nph.dstId,
+								State:   nph.state,
+								Handler: nph,
+							}
+						}()
+					}
 					result <- nil
 					return
 				} else {
@@ -527,6 +535,7 @@ func (nph *NaiveP2PHandler) run(isStatic bool) {
 		case <-nph.connectChan:
 			if nph.GetState() == ST_WAIT {
 				nph.waitTicker.Stop()
+				nph.waitTicker2.Reset(20 * time.Second)
 				nph.pingTicker.Reset(10 * time.Second)
 				nph.disconnTimer.Reset(100 * time.Second)
 				nph.SetState(ST_PING)
@@ -534,7 +543,6 @@ func (nph *NaiveP2PHandler) run(isStatic bool) {
 		case msg := <-msgChan:
 			msgChan = nph.recv()
 			if msg == nil {
-				//TODO: DEBUG
 				continue
 			}
 			go func() {
@@ -551,16 +559,25 @@ func (nph *NaiveP2PHandler) run(isStatic bool) {
 					}
 				}()
 			}
+		case _, ok := <-nph.waitTicker2.C:
+			if ok {
+				go func() {
+					nph.stateChan <- &PeerStateChange{
+						PeerId:  nph.dstId,
+						State:   ST_PING,
+						Handler: nph,
+					}
+				}()
+			}
 		case _, ok := <-nph.pingTicker.C:
 			if ok {
-				//nph.SetState(ST_PING)
 				nph.ping()
-				//nph.ping2Disconn = time.NewTimer(100 * time.Second)
 			}
 		case _, ok := <-nph.disconnTimer.C:
 			if ok {
 				nph.SetState(ST_DISCONN)
 				nph.waitTicker.Stop()
+				nph.waitTicker2.Stop()
 				nph.pingTicker.Stop()
 				go func() {
 					nph.stateChan <- &PeerStateChange{
@@ -573,6 +590,7 @@ func (nph *NaiveP2PHandler) run(isStatic bool) {
 		case <-nph.ctrlChan:
 			nph.pingTicker.Stop()
 			nph.waitTicker.Stop()
+			nph.waitTicker2.Stop()
 			nph.disconnTimer.Stop()
 			return
 		}

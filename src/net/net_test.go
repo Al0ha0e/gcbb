@@ -32,9 +32,7 @@ func TestNewHandler(t *testing.T) {
 		IP:   net.IPv4(0, 0, 0, 0),
 		Port: 0,
 	})
-	hdc := make(chan *NetResult, 1)
-	stc := make(chan *PeerStateChange, 1)
-	NewNaiveP2PHandler([20]byte{0}, sock, hdc, stc, &GobNetEncoder{})
+	NewNaiveP2PHandler([20]byte{0}, sock, &GobNetEncoder{})
 }
 
 func TestNewServer(t *testing.T) {

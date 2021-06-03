@@ -24,8 +24,8 @@ func main() {
 	} else {
 		pInfo := &gnet.PeerInfo{
 			PeerId: [20]byte{3},
-			// PeerIp: &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 8090},
-			PeerIp: &net.UDPAddr{IP: net.IPv4(123, 60, 211, 219), Port: 8090},
+			PeerIp: &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 8090},
+			// PeerIp: &net.UDPAddr{IP: net.IPv4(123, 60, 211, 219), Port: 8090},
 		}
 		server.Init([]*gnet.PeerInfo{pInfo})
 		server.Start()
