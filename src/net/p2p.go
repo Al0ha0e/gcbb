@@ -35,8 +35,8 @@ const (
 )
 
 type P2PMsg struct {
-	SrcId  common.NodeID
-	DstId  common.NodeID
+	SrcId  common.NodeID `nvencoder:"nodeid"`
+	DstId  common.NodeID `nvencoder:"nodeid"`
 	Type   P2PMsgType
 	Data   []byte
 	Digest []byte
@@ -78,7 +78,7 @@ type NaiveP2PServer struct {
 	ctrlChan      chan struct{}
 	staticHandler P2PHandler
 	staticPeers   map[common.NodeID]*net.UDPAddr
-	encoder       NetEncoder
+	encoder       common.Encoder
 }
 
 func NewNaiveP2PServer(
@@ -86,7 +86,7 @@ func NewNaiveP2PServer(
 	pooledCnt int,
 	maxPooledCnt int,
 	dht DistributedHashTable,
-	encoder NetEncoder,
+	encoder common.Encoder,
 	listenPort int) *NaiveP2PServer {
 	hdChan := make(chan *NetResult, 10)
 	stChan := make(chan *PeerStateChange, 10)
@@ -297,10 +297,10 @@ type NaiveP2PHandler struct {
 	waitTicker   *time.Ticker
 	waitTicker2  *time.Ticker
 	disconnTimer *time.Timer
-	encoder      NetEncoder
+	encoder      common.Encoder
 }
 
-func NewNaiveP2PHandler(id common.NodeID, sock *net.UDPConn, encoder NetEncoder) *NaiveP2PHandler {
+func NewNaiveP2PHandler(id common.NodeID, sock *net.UDPConn, encoder common.Encoder) *NaiveP2PHandler {
 	ret := &NaiveP2PHandler{
 		srcId: id,
 		sock:  sock,
@@ -436,11 +436,14 @@ func (nph *NaiveP2PHandler) send(data []byte, tp P2PMsgType, peer *PeerInfo) {
 	}
 	if peer != nil {
 		msg.DstId = peer.PeerId
-		nph.sock.WriteToUDP(nph.encoder.Encode(&msg), peer.PeerIp)
+		pdata := nph.encoder.Encode(&msg)
+		nph.sock.WriteToUDP(pdata, peer.PeerIp)
+		fmt.Println("DATA", pdata)
 		fmt.Println("static send to", peer.PeerId, peer.PeerIp)
 	} else {
 		pdata := nph.encoder.Encode(&msg)
 		nph.sock.WriteToUDP(pdata, nph.dstAddr)
+		fmt.Println("DATA", pdata)
 		fmt.Println("send to", nph.dstId, nph.dstAddr, len(pdata))
 	}
 
@@ -607,10 +610,10 @@ type NaiveP2PHandlerPool struct {
 	pooledCnt    int
 	maxPooledCnt int
 	pool         *list.List
-	encoder      NetEncoder
+	encoder      common.Encoder
 }
 
-func NewNaiveP2PHandlerPool(id common.NodeID, pooledCnt int, maxPooledCnt int, encoder NetEncoder) *NaiveP2PHandlerPool {
+func NewNaiveP2PHandlerPool(id common.NodeID, pooledCnt int, maxPooledCnt int, encoder common.Encoder) *NaiveP2PHandlerPool {
 	ret := &NaiveP2PHandlerPool{
 		id:           id,
 		pooledCnt:    pooledCnt,

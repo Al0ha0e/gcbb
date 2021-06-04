@@ -1,8 +1,6 @@
 package net
 
 import (
-	"bytes"
-	"encoding/gob"
 	"net"
 
 	"github.com/gcbb/src/common"
@@ -19,8 +17,8 @@ const (
 )
 
 type NetMsg struct {
-	SrcId common.NodeID
-	DstId common.NodeID
+	SrcId common.NodeID `nvencoder:"nodeid"`
+	DstId common.NodeID `nvencoder:"nodeid"`
 	Type  NetMsgType
 	Data  []byte
 	TTL   uint32
@@ -31,36 +29,6 @@ type NetResult struct {
 	Data    []byte
 	SrcAddr *net.UDPAddr
 }
-
-type NetEncoder interface {
-	Encode(interface{}) []byte
-	Decode([]byte, interface{})
-}
-
-type GobNetEncoder struct{}
-
-func (gne *GobNetEncoder) Encode(val interface{}) []byte {
-	var buf bytes.Buffer
-	enc := gob.NewEncoder(&buf)
-	enc.Encode(val)
-	return buf.Bytes()
-}
-func (gne *GobNetEncoder) Decode(data []byte, val interface{}) {
-	decoder := gob.NewDecoder(bytes.NewReader(data))
-	decoder.Decode(val)
-}
-
-//func GetSelfPubIp() net.IP {
-//	socket, _ := net.DialUDP("udp4", nil, &net.UDPAddr{
-//		IP:   net.IPv4(127, 0, 0, 1),
-//		Port: 2233,
-//	})
-//	socket.Write([]byte("test"))
-//	data := make([]byte, 256)
-//	l, _, _ := socket.ReadFromUDP(data)
-//	data = data[:l]
-//	return net.ParseIP(string(data))
-//}
 
 type NetHandler interface {
 	Send(common.NodeID, []byte)

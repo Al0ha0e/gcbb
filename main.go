@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/gcbb/src/common"
 	gnet "github.com/gcbb/src/net"
 )
 
@@ -18,7 +19,7 @@ func main() {
 	pid := [20]byte{byte(peerid)}
 	fmt.Println(id, pid)
 	dht := gnet.NewKadDHT(id, 5)
-	server := gnet.NewNaiveP2PServer(id, 3, 5, dht, &gnet.GobNetEncoder{}, staticPort)
+	server := gnet.NewNaiveP2PServer(id, 3, 5, dht, &common.NaiveNetEncoder{}, staticPort)
 	if id == [20]byte{3} {
 		server.Start()
 	} else {
