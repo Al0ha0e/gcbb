@@ -60,7 +60,11 @@ func (lq *LoopedQueue) Length() uint32 {
 	return (lq.queueEn - lq.queueSt + lq.size + 1) % (lq.size + 1)
 }
 
-func (lq *LoopedQueue) IsSendingSeq(seq uint32) bool {
+func (lq *LoopedQueue) Size() uint32 {
+	return lq.size
+}
+
+func (lq *LoopedQueue) IsValidSeq(seq uint32) bool {
 	return seq-lq.stSeq < lq.Length()
 }
 
@@ -71,15 +75,31 @@ func (lq *LoopedQueue) Get(id uint32) interface{} {
 	return nil
 }
 
+func (lq *LoopedQueue) Set(id uint32, data interface{}) {
+	if (id-lq.queueSt+lq.size+1)%(lq.size+1) < lq.Length() {
+		lq.data[id] = data
+	}
+}
+
 func (lq *LoopedQueue) GetBySeq(seq uint32) interface{} {
-	if lq.IsSendingSeq(seq) {
+	if lq.IsValidSeq(seq) {
 		return lq.Get(seq - lq.stSeq)
 	}
 	return nil
 }
 
+func (lq *LoopedQueue) SetBySeq(seq uint32, data interface{}) {
+	if lq.IsValidSeq(seq) {
+		lq.Set(seq-lq.stSeq, data)
+	}
+}
+
 func (lq *LoopedQueue) GetEnSeq() uint32 {
 	return lq.enSeq
+}
+
+func (lq *LoopedQueue) GetStSeq() uint32 {
+	return lq.stSeq
 }
 
 func (lq *LoopedQueue) PopFront() interface{} {
@@ -93,7 +113,7 @@ func (lq *LoopedQueue) PopFront() interface{} {
 }
 
 func (lq *LoopedQueue) PopToSeq(seq uint32) {
-	if lq.IsSendingSeq(seq) {
+	if lq.IsValidSeq(seq) {
 		for ; lq.stSeq != seq; lq.PopFront() {
 		}
 	}
@@ -199,8 +219,21 @@ func (nmph *NaiveMultiPackHandler) Stop() {
 }
 
 func (nmph *NaiveMultiPackHandler) getState() MultipackState {
-	//TODO
-	return MultipackState{}
+	receiveQueue := nmph.receiveQueue
+	stateMap := uint8(0)
+	st := receiveQueue.GetStSeq()
+	for i := st; i != receiveQueue.GetEnSeq(); i++ {
+		if receiveQueue.GetBySeq(i) != nil {
+			stateMap |= 1 << (i - st)
+		}
+	}
+	ret := MultipackState{
+		StateMap:     stateMap,
+		MapStSeq:     receiveQueue.GetStSeq(),
+		ExpectSeq:    receiveQueue.GetEnSeq(),
+		MaxExpectCnt: receiveQueue.Size() - receiveQueue.Length(),
+	}
+	return ret
 }
 
 func (nmph *NaiveMultiPackHandler) syncState(state MultipackState) {
@@ -213,7 +246,7 @@ func (nmph *NaiveMultiPackHandler) syncState(state MultipackState) {
 	//Retransmit In Map
 	var i uint32
 	for i = stSeq; i != stSeq+8 && i != expSeq; i++ {
-		if !nmph.sendingQueue.IsSendingSeq(i) {
+		if !nmph.sendingQueue.IsValidSeq(i) {
 			break
 		}
 		if (stMap & (1 << (i - stSeq))) > 0 {
@@ -225,12 +258,12 @@ func (nmph *NaiveMultiPackHandler) syncState(state MultipackState) {
 
 	for i = 0; i < expCnt; i++ {
 		seq := expSeq + i
-		if nmph.sendingQueue.IsSendingSeq(seq) {
+		if nmph.sendingQueue.IsValidSeq(seq) {
 			//Retransmit
 			msg := nmph.sendingQueue.GetBySeq(seq).(*MultipackMsg)
 			nmph.send(msg)
 		} else {
-			if seq != nmph.sendingQueue.GetEnSeq()+1 {
+			if seq != nmph.sendingQueue.GetEnSeq() {
 				//invalid seq
 				break
 			}
@@ -259,7 +292,52 @@ func (nmph *NaiveMultiPackHandler) syncState(state MultipackState) {
 }
 
 func (nmph *NaiveMultiPackHandler) handlePackReceive(msg *MultipackMsg) {
-	//TODO
+	seq := msg.Info.Seq
+	recvQueue := nmph.receiveQueue
+	if recvQueue.IsValidSeq(seq) {
+		recvQueue.SetBySeq(seq, msg)
+	} else {
+		if seq-recvQueue.GetStSeq() >= recvQueue.Size() {
+			//Invalid seq
+			return
+		}
+		for i := recvQueue.GetEnSeq(); i != seq; i++ {
+			recvQueue.PushBack(nil)
+		}
+		recvQueue.PushBack(msg)
+	}
+	if recvQueue.Length() > 0 {
+		partialDataList := nmph.partialDataList
+		for msgInQueue := recvQueue.Get(recvQueue.GetStSeq()).(*MultipackMsg); msgInQueue != nil; msgInQueue = recvQueue.Get(recvQueue.GetStSeq()).(*MultipackMsg) {
+
+			if partialDataList.Len() == 0 {
+				if msgInQueue.Info.PackSeq != 0 {
+					//Invalid Seq
+					continue
+				}
+				partialDataList.PushBack(msgInQueue)
+			} else {
+				lastPack := partialDataList.Back().Value.(*MultipackMsg)
+				if msgInQueue.Info.PackSeq != lastPack.Info.PackSeq+1 {
+					//Invalid seq
+					for ; partialDataList.Len() > 0; partialDataList.Remove(partialDataList.Front()) {
+					}
+					continue
+				}
+				partialDataList.PushBack(msgInQueue)
+				if msgInQueue.Info.PackSeq == msgInQueue.Info.SubPackCnt-1 {
+					for ; partialDataList.Len() > 0; partialDataList.Remove(partialDataList.Front()) {
+						//TODO Assemble Original Pack
+					}
+				}
+			}
+
+			recvQueue.PopFront()
+			if recvQueue.Length() == 0 {
+				break
+			}
+		}
+	}
 
 }
 
