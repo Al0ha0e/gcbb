@@ -43,6 +43,9 @@ type P2PMsg struct {
 	Sign   []byte
 }
 
+const P2P_PACK_SZIE = 1024
+const NETMSG_PACK_SIZE = P2P_PACK_SZIE - 40 - 1 - 4*3 //TODO
+
 type P2PConnMsg struct {
 	SrcIP   net.IP
 	SrcPort int
@@ -60,10 +63,10 @@ type PeerStateChange struct {
 }
 
 type P2PServer interface {
-	Init()
+	Init(peers []*PeerInfo)
 	Start()
 	Stop()
-	Send(NetMsg)
+	Send(msg *NetMsg)
 	ConnectUDP(dst common.NodeID)
 }
 
@@ -300,9 +303,9 @@ type NaiveP2PHandler struct {
 	encoder      common.Encoder
 }
 
-func NewNaiveP2PHandler(id common.NodeID, sock *net.UDPConn, encoder common.Encoder) *NaiveP2PHandler {
+func NewNaiveP2PHandler(srcId common.NodeID, sock *net.UDPConn, encoder common.Encoder) *NaiveP2PHandler {
 	ret := &NaiveP2PHandler{
-		srcId: id,
+		srcId: srcId,
 		sock:  sock,
 		sendChan: make(chan *struct {
 			data []byte
@@ -453,7 +456,7 @@ func (nph *NaiveP2PHandler) recv() chan *NetResult {
 	ret := make(chan *NetResult, 1)
 	go func(result chan *NetResult) {
 		for {
-			data := make([]byte, 1024)
+			data := make([]byte, P2P_PACK_SZIE)
 			ret := &NetResult{}
 			var l int
 			var msg P2PMsg

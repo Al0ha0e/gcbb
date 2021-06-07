@@ -24,6 +24,8 @@ type NetMsg struct {
 	TTL   uint32
 }
 
+const NETMSG_DATA_SIZE = NETMSG_PACK_SIZE - 40 - 1 - 4 - 4 //TODO
+
 type NetResult struct {
 	SrcId   common.NodeID
 	Data    []byte
@@ -32,18 +34,25 @@ type NetResult struct {
 
 type NetHandler interface {
 	Send(common.NodeID, []byte)
-	AddListener(string, chan *[]byte)
-	RemoveListener(string)
-	GetPeers(uint32) []common.NodeID
-	Run()
+	Init(peers []*PeerInfo)
+	Start()
+	ConnectP2P(dst common.NodeID)
+	// AddListener(string, chan *[]byte)
+	// RemoveListener(string)
+	// GetPeers(uint32) []common.NodeID
 }
 
 type NaiveNetHandler struct {
-	listeners map[string]chan *[]byte
+	server          P2PServer
+	multiHandlerMap map[common.NodeID]MultiPackHandler
+	// listeners map[string]chan *[]byte
 }
 
-func NewNaiveNetHandler() *NaiveNetHandler {
-	ret := &NaiveNetHandler{listeners: make(map[string]chan *[]byte)}
+func NewNaiveNetHandler(server P2PServer) *NaiveNetHandler {
+	// ret := &NaiveNetHandler{listeners: make(map[string]chan *[]byte)}
+	ret := &NaiveNetHandler{
+		server: server,
+	}
 	return ret
 }
 
@@ -51,15 +60,27 @@ func (nnh *NaiveNetHandler) Send(peer common.NodeID, data []byte) {
 
 }
 
-func (nnh *NaiveNetHandler) AddListener(lid string, listener chan *[]byte) {
-	nnh.listeners[lid] = listener
+func (nnh *NaiveNetHandler) Init(peers []*PeerInfo) {
+	nnh.server.Init(peers)
 }
 
-func (nnh *NaiveNetHandler) RemoveListener(lid string) {
-	delete(nnh.listeners, lid)
+func (nnh *NaiveNetHandler) Start() {
+	nnh.server.Start()
+	go nnh.run()
 }
 
-func Run() {
-	// for {
-	// }
+func (nnh *NaiveNetHandler) ConnectP2P(dst common.NodeID) {
+	nnh.server.ConnectUDP(dst)
+}
+
+// func (nnh *NaiveNetHandler) AddListener(lid string, listener chan *[]byte) {
+// 	nnh.listeners[lid] = listener
+// }
+
+// func (nnh *NaiveNetHandler) RemoveListener(lid string) {
+// 	delete(nnh.listeners, lid)
+// }
+
+func (nnh *NaiveNetHandler) run() {
+
 }
