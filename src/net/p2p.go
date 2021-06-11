@@ -68,6 +68,7 @@ type P2PServer interface {
 	Stop()
 	Send(msg *NetMsg)
 	ConnectUDP(dst common.NodeID)
+	HearFrom(src common.NodeID) chan *NetMsg
 }
 
 type NaiveP2PServer struct {
@@ -79,6 +80,7 @@ type NaiveP2PServer struct {
 	handlerChan   chan *NetResult
 	stateChan     chan *PeerStateChange
 	ctrlChan      chan struct{}
+	netMsgChan    map[common.NodeID]chan *NetMsg
 	staticHandler P2PHandler
 	staticPeers   map[common.NodeID]*net.UDPAddr
 	encoder       common.Encoder
@@ -105,6 +107,7 @@ func NewNaiveP2PServer(
 		handlerChan:   hdChan,
 		stateChan:     stChan,
 		ctrlChan:      make(chan struct{}, 1),
+		netMsgChan:    make(map[common.NodeID]chan *NetMsg),
 		staticHandler: sHandler,
 		staticPeers:   make(map[common.NodeID]*net.UDPAddr),
 		encoder:       encoder,
@@ -140,6 +143,15 @@ func (nps *NaiveP2PServer) ConnectUDP(dst common.NodeID) {
 	go func() {
 		nps.connectChan <- dst
 	}()
+}
+
+func (nps *NaiveP2PServer) HearFrom(src common.NodeID) chan *NetMsg {
+	if ret, ok := nps.netMsgChan[src]; ok {
+		return ret
+	}
+	ret := make(chan *NetMsg, 2)
+	nps.netMsgChan[src] = ret
+	return ret
 }
 
 func (nps *NaiveP2PServer) send(msg *NetMsg) {
@@ -225,9 +237,13 @@ func (nps *NaiveP2PServer) run() {
 						handler.Connect()
 					}
 				case MSG_SINGLE:
-					continue
+					fallthrough
 				case MSG_MULTI:
-					continue
+					if c, ok := nps.netMsgChan[netMsg.SrcId]; ok {
+						go func() {
+							c <- &netMsg
+						}()
+					}
 				}
 			} else {
 				fmt.Println("ROUTE TO", netMsg.DstId, netMsg.TTL)
