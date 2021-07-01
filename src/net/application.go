@@ -18,5 +18,5 @@ type AppliNetHandler interface {
 	GetID() uint32
 	AddListener(listenerID uint16, listenerChan chan ListenerNetMsg)
 	RemoveListener(listenerID uint16)
-	SendTo(peer common.NodeID, handlerID uint16, listenerID uint16, data []byte)
+	SendTo(peer common.NodeID, handlerID uint16, listenerID common.CalcProcListenerID, data []byte)
 }

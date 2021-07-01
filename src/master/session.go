@@ -59,7 +59,7 @@ type SubTaskSession struct {
 	encoder        common.Encoder
 	handler        net.AppliNetHandler
 	deployChan     chan chain.DeployResult
-	peerResChan    chan net.ListenerNetMsg
+	peerResChan    chan *net.ListenerNetMsg
 	peerAnswerChan chan *PeerAnswerMsg
 	ctrlChan       chan struct{}
 }
@@ -107,20 +107,20 @@ func (session *SubTaskSession) run() {
 				return
 			}
 		case msg := <-session.peerResChan:
-			var resMsg common.PeerResMsg
+			var resMsg common.WorkerResMsg
 			session.encoder.Decode(msg.Data, &resMsg)
-			if resMsg.PeerID == msg.FromPeerID &&
+			if resMsg.WorkerID == msg.FromPeerID &&
 				resMsg.MasterID == session.mid &&
 				resMsg.TaskID == session.taskInfo.ID {
-				if _, ok := session.peers[resMsg.PeerID]; ok {
+				if _, ok := session.peers[resMsg.WorkerID]; ok {
 					//TODO
 				} else {
-					confoundKey := session.genConfoundKey(resMsg.PeerID)
-					session.peers[resMsg.PeerID] = NewPeerTaskInfo(confoundKey, STPEER_ACCEPT)
-					sign := session.genSign(resMsg.PeerID)
+					confoundKey := session.genConfoundKey(resMsg.WorkerID)
+					session.peers[resMsg.WorkerID] = NewPeerTaskInfo(confoundKey, STPEER_ACCEPT)
+					sign := session.genSign(resMsg.WorkerID)
 					meta := common.NewTaskMetaMsg(session.mid, session.taskInfo.ID, confoundKey, sign, *session.trackers)
-					session.handler.SendTo(resMsg.PeerID, msg.FromHandlerID, uint16(common.CPROC_META), session.encoder.Encode(&meta))
-					session.peers[resMsg.PeerID].State = STPEER_RUNNING
+					session.handler.SendTo(resMsg.WorkerID, msg.FromHandlerID, common.CPROC_META, session.encoder.Encode(&meta))
+					session.peers[resMsg.WorkerID].State = STPEER_RUNNING
 				}
 			} else {
 				//TODO

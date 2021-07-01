@@ -9,8 +9,8 @@ const (
 	CPROC_META CalcProcListenerID = iota
 )
 
-type PeerResMsg struct {
-	PeerID   NodeID
+type WorkerResMsg struct {
+	WorkerID NodeID
 	MasterID NodeID
 	TaskID   TaskID
 }
