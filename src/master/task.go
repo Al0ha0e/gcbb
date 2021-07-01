@@ -1,10 +1,13 @@
 package master
 
+import "github.com/gcbb/src/common"
+
 type UnitTask struct {
 	DataUrl string
 }
 
 type SubTask struct {
+	ID        common.TaskID
 	Code      []byte
 	UnitTasks []UnitTask
 	PreTasks  []uint32

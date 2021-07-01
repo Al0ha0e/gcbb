@@ -56,6 +56,7 @@ const MULTIPACK_DATA_SIZE = NETMSG_DATA_SIZE - MP_STATE_SIZE - MP_INFO_SIZE - 4
 
 type MultiPackHandler interface {
 	Init()
+	Connect()
 	Start()
 	Send(data []byte)
 	OnPackArrive(data []byte)
@@ -112,6 +113,8 @@ func (nmph *NaiveMultiPackHandler) Init() {
 	nmph.statusTimer = time.NewTimer(10 * time.Second)
 	nmph.statusTimer.Stop()
 }
+
+func (nmph *NaiveMultiPackHandler) Connect() {}
 
 func (nmph *NaiveMultiPackHandler) Start() {
 	nmph.statusTimer.Reset(10 * time.Second)

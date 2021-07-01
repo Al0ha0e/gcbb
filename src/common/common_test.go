@@ -47,3 +47,15 @@ func TestNaiveEncoder(t *testing.T) {
 	coder.Decode(data, &val2)
 	fmt.Println(val2)
 }
+
+func TestGenSHA1(t *testing.T) {
+	data := []byte{1, 2, 3, 4, 5}
+	fmt.Printf("%x\n", GenSHA1(data))
+}
+
+func TestBytesToBigInt(t *testing.T) {
+	data := []byte{1, 2}
+	i := BytesToBigInt(data)
+	fmt.Println(i.Add(i, i))
+	fmt.Println(i)
+}
