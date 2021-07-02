@@ -1,12 +1,12 @@
 package common
 
-type CalcProcListenerID uint16
+type AppliListenerID uint16
 
 const (
 	//Worker -> Master
-	CPROC_RES CalcProcListenerID = iota
+	CPROC_RES AppliListenerID = iota
 	//Master -> Worker
-	CPROC_META CalcProcListenerID = iota
+	CPROC_META AppliListenerID = iota
 )
 
 type WorkerResMsg struct {
