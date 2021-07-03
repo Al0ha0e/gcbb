@@ -20,21 +20,22 @@ type DataOrigin struct {
 
 type ShareRequestMsg struct {
 	Origin DataOrigin
-	ID     string
+	ID     uint32
 	Hash   common.HashVal
 	Size   uint32
 }
 
-func NewShareRequest(ori DataOrigin, id string, hash common.HashVal) *ShareRequestMsg {
+func NewShareRequest(ori DataOrigin, id uint32, hash common.HashVal, size uint32) *ShareRequestMsg {
 	return &ShareRequestMsg{
 		Origin: ori,
 		ID:     id,
 		Hash:   hash,
+		Size:   size,
 	}
 }
 
 type ShareAcceptMsg struct {
-	ID   string
+	ID   uint32
 	Hash common.HashVal
 }
 
@@ -47,34 +48,86 @@ const (
 	SHARE_ABORT    ShareSessionState = iota
 )
 
+type ShareResult struct {
+	PeerStates []ShareSessionState
+}
+
 type ShareSession struct {
 	fs           FS
-	dataID       string
-	hash         common.HashVal
+	id           uint32
+	keys         []string
 	origin       DataOrigin
 	peers        []common.NodeID
 	peerState    map[common.NodeID]ShareSessionState
 	appliHandler net.AppliNetHandler
 	encoder      common.Encoder
+	sendTimer    *time.Timer
 
-	acceptMsgChan  chan *net.ListenerNetMsg
-	sendResultChan chan *net.SendResult
-	ctrlChan       chan struct{}
-	//TODO Timer
+	acceptMsgChan   chan *net.ListenerNetMsg
+	sendResultChan  chan *net.SendResult
+	shareResultChan chan<- *ShareResult
+	ctrlChan        chan struct{}
 }
 
-func NewShareSession() *ShareSession {
-	return &ShareSession{}
+func NewShareSession(fs FS,
+	id uint32,
+	keys []string,
+	origin DataOrigin,
+	peers []common.NodeID,
+	appliHandler net.AppliNetHandler,
+	encoder common.Encoder,
+	shareResultChan chan<- *ShareResult) *ShareSession {
+	peerState := make(map[common.NodeID]ShareSessionState)
+	for _, peer := range peers {
+		peerState[peer] = SHARE_ST
+	}
+	return &ShareSession{
+		fs:              fs,
+		id:              id,
+		keys:            keys,
+		origin:          origin,
+		peers:           peers,
+		peerState:       peerState,
+		appliHandler:    appliHandler,
+		encoder:         encoder,
+		acceptMsgChan:   make(chan *net.ListenerNetMsg, 10),
+		sendResultChan:  make(chan *net.SendResult, 10),
+		shareResultChan: shareResultChan,
+		ctrlChan:        make(chan struct{}, 1),
+	}
 }
 
 func (session *ShareSession) Start() {
-	msg := NewShareRequest(session.origin, session.dataID, session.hash)
+	dataSize := 0
+	totData := make([]byte, 0)
+	for _, key := range session.keys {
+		data, _ := session.fs.Get(key)
+		dataSize += len(data)
+		totData = append(totData, data...)
+	}
+	hash := common.GenSHA1(totData)
+	msg := NewShareRequest(session.origin, session.id, hash, uint32(dataSize))
 	data := session.encoder.Encode(msg)
 	for i := 0; i < len(session.peers); i++ {
 		session.peerState[session.peers[i]] = SHARE_ST
 		session.appliHandler.SendTo(session.peers[i], net.StaticHandlerID, SPROC_WAIT, data)
 	}
+	session.sendTimer = time.NewTimer(2 * session.appliHandler.EstimateTimeOut(msg.Size))
 	go session.run()
+}
+
+func (session *ShareSession) terminate() {
+	session.sendTimer.Stop()
+	states := make([]ShareSessionState, len(session.peers))
+	for i, peer := range session.peers {
+		states[i] = session.peerState[peer]
+	}
+
+	go func() {
+		session.shareResultChan <- &ShareResult{
+			PeerStates: states,
+		}
+	}()
 }
 
 func (session *ShareSession) run() {
@@ -93,8 +146,16 @@ func (session *ShareSession) run() {
 						break
 					}
 				}
-				data, _ := session.fs.Get(session.dataID)
-				session.appliHandler.ReliableSendTo(peerID, msg.FromHandlerID, SPROC_RECEIVER, data, id, session.sendResultChan)
+				datas := make([][]byte, len(session.keys))
+				for _, key := range session.keys {
+					data, _ := session.fs.Get(key)
+					datas = append(datas, data)
+				}
+				dataPack := &DataPack{
+					Keys: session.keys,
+					Data: datas,
+				}
+				session.appliHandler.ReliableSendTo(peerID, msg.FromHandlerID, SPROC_RECEIVER, session.encoder.Encode(&dataPack), id, session.sendResultChan)
 			} else {
 				//TODO
 			}
@@ -105,7 +166,11 @@ func (session *ShareSession) run() {
 				}
 			} else {
 			}
+		case <-session.sendTimer.C:
+			session.terminate()
+			return
 		case <-session.ctrlChan:
+			session.terminate()
 			return
 		}
 	}
@@ -117,31 +182,67 @@ type ShareRecvResult struct {
 
 type ShareRecvSession struct {
 	fs              FS
-	dataID          string
+	id              uint32
 	hash            common.HashVal
 	size            uint32
 	senderID        common.NodeID
 	senderHandlerID uint16
 	appliHandler    net.AppliNetHandler
 	encoder         common.Encoder
-	waitTimer       time.Timer
+	waitTimer       *time.Timer
 
 	resultChan chan<- *ShareRecvResult
 	dataChan   chan *net.ListenerNetMsg
-	ctrlChan   <-chan struct{}
+	ctrlChan   chan struct{}
+}
+
+func NewShareRecvSession(
+	fs FS,
+	id uint32,
+	hash common.HashVal,
+	size uint32,
+	senderID common.NodeID,
+	senderHandlerID uint16,
+	appliHandler net.AppliNetHandler,
+	encoder common.Encoder,
+	resultChan chan<- *ShareRecvResult) *ShareRecvSession {
+	return &ShareRecvSession{
+		fs:              fs,
+		id:              id,
+		hash:            hash,
+		size:            size,
+		senderID:        senderID,
+		senderHandlerID: senderHandlerID,
+		appliHandler:    appliHandler,
+		encoder:         encoder,
+		resultChan:      resultChan,
+		dataChan:        make(chan *net.ListenerNetMsg, 1),
+		ctrlChan:        make(chan struct{}, 1),
+	}
 }
 
 func (session *ShareRecvSession) Start() {
 	session.appliHandler.AddListener(SPROC_RECEIVER, session.dataChan)
 	msg := &ShareAcceptMsg{
-		ID:   session.dataID,
+		ID:   session.id,
 		Hash: session.hash,
 	}
 	data := session.encoder.Encode(msg)
 	session.appliHandler.SendTo(session.senderID, session.senderHandlerID, SPROC_SENDER, data)
 	//TODO
-	session.waitTimer.Reset(session.appliHandler.EstimateTimeOut(session.size))
+	session.waitTimer = time.NewTimer(session.appliHandler.EstimateTimeOut(session.size))
 	go session.run()
+}
+
+func (session *ShareRecvSession) Stop() {
+	close(session.ctrlChan)
+}
+
+func (session *ShareRecvSession) terminate(ok bool) {
+	session.waitTimer.Stop()
+	go func() {
+		session.resultChan <- &ShareRecvResult{OK: ok}
+	}()
 }
 
 func (session *ShareRecvSession) run() {
@@ -150,16 +251,18 @@ func (session *ShareRecvSession) run() {
 		case data := <-session.dataChan:
 			//TODO DataInfo
 			//TODO Check data
-			session.waitTimer.Stop()
-			session.fs.Set(session.dataID, data.Data)
-			session.resultChan <- &ShareRecvResult{OK: true}
+			var dataPack DataPack
+			session.encoder.Decode(data.Data, &dataPack)
+			for i, key := range dataPack.Keys {
+				session.fs.Set(key, dataPack.Data[i])
+			}
+			session.terminate(true)
 			return
 		case <-session.waitTimer.C:
-			session.resultChan <- &ShareRecvResult{OK: false}
+			session.terminate(false)
 			return
 		case <-session.ctrlChan:
-			session.waitTimer.Stop()
-			session.resultChan <- &ShareRecvResult{OK: false}
+			session.terminate(false)
 			return
 		}
 	}

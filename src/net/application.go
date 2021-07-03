@@ -36,3 +36,17 @@ type AppliNetHandler interface {
 	ReliableSendTo(peer common.NodeID, handlerID uint16, listenerID common.AppliListenerID, data []byte, id uint32, resultChan chan *SendResult)
 	EstimateTimeOut(byteCnt uint32) time.Duration
 }
+
+type NaiveAppliNetHandler struct{}
+
+func (handler *NaiveAppliNetHandler) GetID() uint32 { return 0 }
+func (handler *NaiveAppliNetHandler) AddListener(listenerID common.AppliListenerID, listenerChan chan *ListenerNetMsg) {
+}
+func (handler *NaiveAppliNetHandler) RemoveListener(listenerID common.AppliListenerID) {}
+func (handler *NaiveAppliNetHandler) SendTo(peer common.NodeID, handlerID uint16, listenerID common.AppliListenerID, data []byte) {
+}
+func (handler *NaiveAppliNetHandler) ReliableSendTo(peer common.NodeID, handlerID uint16, listenerID common.AppliListenerID, data []byte, id uint32, resultChan chan *SendResult) {
+}
+func (handler *NaiveAppliNetHandler) EstimateTimeOut(byteCnt uint32) time.Duration {
+	return time.Duration(byteCnt) * time.Second
+}
