@@ -18,6 +18,12 @@ type FileShareInfo struct {
 	Peers  []common.NodeID
 }
 
+type FilePurchaseInfo struct {
+	Keys []string
+	Peer common.NodeID
+	Hash common.HashVal
+}
+
 type FS interface {
 	Set(string, []byte)
 	Get(string) ([]byte, error)
@@ -36,6 +42,9 @@ type NaiveFS struct {
 	shareResultChan     chan *ShareResult
 	shareRequestChan    chan *net.ListenerNetMsg
 	shareRecvResultChan chan *ShareRecvResult
+	purchaseChan        chan *FilePurchaseInfo
+	purchaseResultChan  chan *PurchaseResult
+	puchaseRequestChan  chan *net.ListenerNetMsg
 	ctrlChan            chan struct{}
 }
 
@@ -63,6 +72,7 @@ func (nfs *NaiveFS) Purchase(url string, c chan interface{}) {}
 
 func (nfs *NaiveFS) Start() {
 	nfs.staticAppliNetHandler.AddListener(SPROC_WAIT, nfs.shareRequestChan)
+	nfs.staticAppliNetHandler.AddListener(PPROC_WAIT, nfs.puchaseRequestChan)
 	go nfs.run()
 }
 
@@ -83,6 +93,18 @@ func (nfs *NaiveFS) run() {
 		case <-nfs.shareResultChan:
 			return
 		case <-nfs.shareRecvResultChan:
+			return
+		case info := <-nfs.purchaseChan:
+			nfs.sessionId += 1
+			session := NewPurchaseSession(nfs, nfs.sessionId, info.Keys, info.Hash, info.Peer, nfs.encoder, nfs.purchaseResultChan)
+			session.Start()
+		case msg := <-nfs.puchaseRequestChan:
+			var req PurchaseRequestMsg
+			nfs.encoder.Decode(msg.Data, &req)
+			handler := &net.NaiveAppliNetHandler{}
+			session := NewSellSession(nfs, req.Keys, msg.FromPeerID, msg.FromHandlerID, handler, nfs.encoder)
+			session.Start()
+		case <-nfs.purchaseResultChan:
 			return
 		case <-nfs.ctrlChan:
 			return

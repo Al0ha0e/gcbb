@@ -250,13 +250,21 @@ func (session *ShareRecvSession) run() {
 		select {
 		case data := <-session.dataChan:
 			//TODO DataInfo
-			//TODO Check data
 			var dataPack DataPack
 			session.encoder.Decode(data.Data, &dataPack)
-			for i, key := range dataPack.Keys {
-				session.fs.Set(key, dataPack.Data[i])
+			totData := make([]byte, 0)
+			for i, _ := range dataPack.Keys {
+				totData = append(totData, dataPack.Data[i]...)
 			}
-			session.terminate(true)
+			hash := common.GenSHA1(totData)
+			if hash == session.hash {
+				for i, key := range dataPack.Keys {
+					session.fs.Set(key, dataPack.Data[i])
+				}
+				session.terminate(true)
+			} else {
+				session.terminate(false)
+			}
 			return
 		case <-session.waitTimer.C:
 			session.terminate(false)
