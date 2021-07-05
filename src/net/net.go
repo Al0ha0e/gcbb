@@ -2,6 +2,7 @@ package net
 
 import (
 	"net"
+	"time"
 
 	"github.com/gcbb/src/common"
 )
@@ -73,14 +74,80 @@ func (nnh *NaiveNetHandler) ConnectP2P(dst common.NodeID) {
 	nnh.server.ConnectUDP(dst)
 }
 
-// func (nnh *NaiveNetHandler) AddListener(lid string, listener chan *[]byte) {
-// 	nnh.listeners[lid] = listener
-// }
-
-// func (nnh *NaiveNetHandler) RemoveListener(lid string) {
-// 	delete(nnh.listeners, lid)
-// }
-
 func (nnh *NaiveNetHandler) run() {
 
+}
+
+var EmuChanMap map[common.NodeID]chan *NetMsg
+
+type NetHandlerEmulator struct {
+	NodeID     common.NodeID
+	handlerMap map[uint16]AppliNetHandler
+	encoder    common.Encoder
+	recvChan   chan *NetMsg
+	ctrlChan   chan struct{}
+}
+
+func NewNetHandlerEmulator(nodeId common.NodeID) *NetHandlerEmulator {
+	ret := &NetHandlerEmulator{
+		NodeID:     nodeId,
+		handlerMap: make(map[uint16]AppliNetHandler),
+		recvChan:   make(chan *NetMsg, 10),
+		ctrlChan:   make(chan struct{}, 1),
+	}
+	EmuChanMap[ret.NodeID] = ret.recvChan
+	return ret
+}
+
+func (emulator *NetHandlerEmulator) AddAppliHandler(handler AppliNetHandler) {
+	emulator.handlerMap[handler.GetID()] = handler
+}
+
+func (emulator *NetHandlerEmulator) SendTo(peer common.NodeID, msg *AppliNetMsg) {
+	go func() {
+		timer := time.NewTimer(200 * time.Millisecond)
+		<-timer.C
+		EmuChanMap[peer] <- &NetMsg{
+			SrcId: emulator.NodeID,
+			DstId: peer,
+			Data:  emulator.encoder.Encode(msg),
+		}
+	}()
+}
+
+func (emulator *NetHandlerEmulator) ReliableSendTo(peer common.NodeID, msg *AppliNetMsg, id uint32, resultChan chan *SendResult) {
+	go func() {
+		timer := time.NewTimer(200 * time.Millisecond)
+		<-timer.C
+		EmuChanMap[peer] <- &NetMsg{
+			SrcId: emulator.NodeID,
+			DstId: peer,
+			Data:  emulator.encoder.Encode(msg),
+		}
+		resultChan <- &SendResult{
+			ID:            id,
+			OK:            true,
+			DstPeerID:     peer,
+			DstHandlerID:  msg.DstHandlerID,
+			DstListenerID: msg.DstListenerID,
+		}
+	}()
+}
+
+func (emulator *NetHandlerEmulator) Start() {
+	go emulator.run()
+}
+
+func (emulator *NetHandlerEmulator) run() {
+	for {
+		select {
+		case msg := <-emulator.recvChan:
+			var appliMsg AppliNetMsg
+			emulator.encoder.Decode(msg.Data, &appliMsg)
+			emulator.handlerMap[appliMsg.DstHandlerID].OnMsgArrive(msg.SrcId, &appliMsg)
+		case <-emulator.ctrlChan:
+			delete(EmuChanMap, emulator.NodeID)
+			return
+		}
+	}
 }
