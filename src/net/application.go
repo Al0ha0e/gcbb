@@ -49,14 +49,16 @@ type AppliNetHandler interface {
 }
 
 type NaiveAppliNetHandler struct {
-	id        uint16
-	listeners map[common.AppliListenerID]chan *ListenerNetMsg
+	id         uint16
+	listeners  map[common.AppliListenerID]chan *ListenerNetMsg
+	netHandler NetHandler
 }
 
-func NewNaiveAppliNetHandler(id uint16) *NaiveAppliNetHandler {
+func NewNaiveAppliNetHandler(id uint16, netHandler NetHandler) *NaiveAppliNetHandler {
 	return &NaiveAppliNetHandler{
-		id:        id,
-		listeners: make(map[common.AppliListenerID]chan *ListenerNetMsg),
+		id:         id,
+		listeners:  make(map[common.AppliListenerID]chan *ListenerNetMsg),
+		netHandler: netHandler,
 	}
 }
 
@@ -69,9 +71,12 @@ func (handler *NaiveAppliNetHandler) RemoveListener(listenerID common.AppliListe
 }
 
 func (handler *NaiveAppliNetHandler) SendTo(peer common.NodeID, handlerID uint16, listenerID common.AppliListenerID, data []byte) {
-
+	msg := NewAppliNetMsg(handler.id, handlerID, listenerID, data)
+	handler.netHandler.SendTo(peer, msg)
 }
 func (handler *NaiveAppliNetHandler) ReliableSendTo(peer common.NodeID, handlerID uint16, listenerID common.AppliListenerID, data []byte, id uint32, resultChan chan *SendResult) {
+	msg := NewAppliNetMsg(handler.id, handlerID, listenerID, data)
+	handler.netHandler.ReliableSendTo(peer, msg, id, resultChan)
 }
 func (handler *NaiveAppliNetHandler) EstimateTimeOut(byteCnt uint32) time.Duration {
 	return time.Duration(byteCnt) * time.Second

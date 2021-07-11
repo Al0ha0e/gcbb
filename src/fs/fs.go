@@ -1,6 +1,7 @@
 package fs
 
 import (
+	"fmt"
 	"sync"
 
 	"github.com/gcbb/src/common"
@@ -27,8 +28,8 @@ type FilePurchaseInfo struct {
 type FS interface {
 	Set(string, []byte)
 	Get(string) ([]byte, error)
-	Share(string, *FileShareInfo)
-	Purchase(string, chan interface{})
+	Share(*FileShareInfo)
+	Purchase(*FilePurchaseInfo)
 	Start()
 }
 
@@ -62,13 +63,17 @@ func (nfs *NaiveFS) Get(k string) ([]byte, error) {
 	return ret.([]byte), nil
 }
 
-func (nfs *NaiveFS) Share(k string, info *FileShareInfo) {
+func (nfs *NaiveFS) Share(info *FileShareInfo) {
 	go func() {
 		nfs.shareChan <- info
 	}()
 }
 
-func (nfs *NaiveFS) Purchase(url string, c chan interface{}) {}
+func (nfs *NaiveFS) Purchase(info *FilePurchaseInfo) {
+	go func() {
+		nfs.purchaseChan <- info
+	}()
+}
 
 func (nfs *NaiveFS) Start() {
 	nfs.staticAppliNetHandler.AddListener(SPROC_WAIT, nfs.shareRequestChan)
@@ -90,10 +95,10 @@ func (nfs *NaiveFS) run() {
 			handler := &net.NaiveAppliNetHandler{}
 			session := NewShareRecvSession(nfs, req.ID, req.Hash, req.Size, msg.FromPeerID, msg.FromHandlerID, handler, nfs.encoder, nfs.shareRecvResultChan)
 			session.Start()
-		case <-nfs.shareResultChan:
-			return
-		case <-nfs.shareRecvResultChan:
-			return
+		case result := <-nfs.shareResultChan:
+			fmt.Println("SHARE RESULT", result)
+		case result := <-nfs.shareRecvResultChan:
+			fmt.Println("SHARE RECV RESULT", result)
 		case info := <-nfs.purchaseChan:
 			nfs.sessionId += 1
 			session := NewPurchaseSession(nfs, nfs.sessionId, info.Keys, info.Hash, info.Peer, nfs.encoder, nfs.purchaseResultChan)
@@ -104,8 +109,8 @@ func (nfs *NaiveFS) run() {
 			handler := &net.NaiveAppliNetHandler{}
 			session := NewSellSession(nfs, req.Keys, msg.FromPeerID, msg.FromHandlerID, handler, nfs.encoder)
 			session.Start()
-		case <-nfs.purchaseResultChan:
-			return
+		case result := <-nfs.purchaseResultChan:
+			fmt.Println("PURCHASE RESULT", result)
 		case <-nfs.ctrlChan:
 			return
 		}

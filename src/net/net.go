@@ -34,13 +34,11 @@ type NetResult struct {
 }
 
 type NetHandler interface {
-	Send(common.NodeID, []byte)
-	Init(peers []*PeerInfo)
+	AddAppliHandler(handler AppliNetHandler)
+	SendTo(peer common.NodeID, msg *AppliNetMsg)
+	ReliableSendTo(peer common.NodeID, msg *AppliNetMsg, id uint32, resultChan chan *SendResult)
 	Start()
-	ConnectP2P(dst common.NodeID)
-	// AddListener(string, chan *[]byte)
-	// RemoveListener(string)
-	// GetPeers(uint32) []common.NodeID
+	Stop()
 }
 
 type NaiveNetHandler struct {
@@ -88,9 +86,13 @@ type NetHandlerEmulator struct {
 	ctrlChan   chan struct{}
 }
 
-func NewNetHandlerEmulator(nodeId common.NodeID) *NetHandlerEmulator {
+func NewNetHandlerEmulator(nodeId common.NodeID, encoder common.Encoder) *NetHandlerEmulator {
+	if EmuChanMap == nil {
+		EmuChanMap = make(map[common.NodeID]chan *NetMsg)
+	}
 	ret := &NetHandlerEmulator{
 		NodeID:     nodeId,
+		encoder:    encoder,
 		handlerMap: make(map[uint16]AppliNetHandler),
 		recvChan:   make(chan *NetMsg, 10),
 		ctrlChan:   make(chan struct{}, 1),
@@ -136,6 +138,10 @@ func (emulator *NetHandlerEmulator) ReliableSendTo(peer common.NodeID, msg *Appl
 
 func (emulator *NetHandlerEmulator) Start() {
 	go emulator.run()
+}
+
+func (emulatoor *NetHandlerEmulator) Stop() {
+	close(emulatoor.ctrlChan)
 }
 
 func (emulator *NetHandlerEmulator) run() {
