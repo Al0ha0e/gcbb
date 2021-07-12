@@ -3,6 +3,7 @@ package worker
 import (
 	"github.com/gcbb/src/chain"
 	"github.com/gcbb/src/common"
+	"github.com/gcbb/src/fs"
 	"github.com/gcbb/src/net"
 )
 
@@ -20,6 +21,7 @@ const (
 )
 
 type WorkerSession struct {
+	fs           fs.FS
 	state        WorkerSessionState
 	code         []byte
 	data         [][]byte
@@ -80,6 +82,8 @@ func (session *WorkerSession) run() {
 					session.confoundKey = meta.ConfoundKey
 					session.state = WS_FETCHING
 					//TODO Fetch Data
+					info := &fs.FilePurchaseInfo{}
+					session.fs.Purchase(info)
 				}
 			} else {
 				//TODO

@@ -1,6 +1,7 @@
 package net
 
 import (
+	"fmt"
 	"time"
 
 	"github.com/gcbb/src/common"
@@ -55,11 +56,13 @@ type NaiveAppliNetHandler struct {
 }
 
 func NewNaiveAppliNetHandler(id uint16, netHandler NetHandler) *NaiveAppliNetHandler {
-	return &NaiveAppliNetHandler{
+	ret := &NaiveAppliNetHandler{
 		id:         id,
 		listeners:  make(map[common.AppliListenerID]chan *ListenerNetMsg),
 		netHandler: netHandler,
 	}
+	ret.netHandler.AddAppliHandler(ret)
+	return ret
 }
 
 func (handler *NaiveAppliNetHandler) GetID() uint16 { return handler.id }
@@ -83,11 +86,34 @@ func (handler *NaiveAppliNetHandler) EstimateTimeOut(byteCnt uint32) time.Durati
 }
 
 func (handler *NaiveAppliNetHandler) OnMsgArrive(from common.NodeID, msg *AppliNetMsg) {
+	fmt.Println("ON MSG ARRIVE", from, msg)
 	go func() {
 		handler.listeners[msg.DstListenerID] <- &ListenerNetMsg{
 			FromPeerID:    from,
 			FromHandlerID: msg.SrcHandlerID,
 			Data:          msg.Data,
 		}
+		fmt.Println("OK")
 	}()
+}
+
+type AppliNetHandlerFactory interface {
+	GetHandler() AppliNetHandler
+}
+
+type NaiveAppliNetHandlerFactory struct {
+	id         uint16
+	netHandler NetHandler
+}
+
+func NewNaiveAppliNetHandlerFactory(netHandler NetHandler) *NaiveAppliNetHandlerFactory {
+	return &NaiveAppliNetHandlerFactory{
+		id:         0,
+		netHandler: netHandler,
+	}
+}
+
+func (factory *NaiveAppliNetHandlerFactory) GetHandler() AppliNetHandler {
+	factory.id += 1
+	return NewNaiveAppliNetHandler(factory.id, factory.netHandler)
 }

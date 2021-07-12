@@ -1,6 +1,7 @@
 package net
 
 import (
+	"fmt"
 	"net"
 	"time"
 
@@ -109,6 +110,7 @@ func (emulator *NetHandlerEmulator) SendTo(peer common.NodeID, msg *AppliNetMsg)
 	go func() {
 		timer := time.NewTimer(200 * time.Millisecond)
 		<-timer.C
+		fmt.Println("SEND TO", EmuChanMap[peer])
 		EmuChanMap[peer] <- &NetMsg{
 			SrcId: emulator.NodeID,
 			DstId: peer,

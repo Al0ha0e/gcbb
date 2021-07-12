@@ -1,17 +1,11 @@
 package fs
 
 import (
+	"fmt"
 	"time"
 
 	"github.com/gcbb/src/common"
 	"github.com/gcbb/src/net"
-)
-
-const (
-	//
-	SPROC_WAIT     common.AppliListenerID = iota
-	SPROC_SENDER   common.AppliListenerID = iota
-	SPROC_RECEIVER common.AppliListenerID = iota
 )
 
 type DataOrigin struct {
@@ -49,6 +43,7 @@ const (
 )
 
 type ShareResult struct {
+	ID         uint32
 	PeerStates []ShareSessionState
 }
 
@@ -98,6 +93,7 @@ func NewShareSession(fs FS,
 }
 
 func (session *ShareSession) Start() {
+	session.appliHandler.AddListener(SPROC_SENDER, session.acceptMsgChan)
 	dataSize := 0
 	totData := make([]byte, 0)
 	for _, key := range session.keys {
@@ -125,6 +121,7 @@ func (session *ShareSession) terminate() {
 
 	go func() {
 		session.shareResultChan <- &ShareResult{
+			ID:         session.id,
 			PeerStates: states,
 		}
 	}()
@@ -137,6 +134,7 @@ func (session *ShareSession) run() {
 			var acceptMsg ShareAcceptMsg
 			session.encoder.Decode(msg.Data, &acceptMsg)
 			peerID := msg.FromPeerID
+			fmt.Println("OHHHHH")
 			if state, ok := session.peerState[peerID]; ok && state == SHARE_ST {
 				session.peerState[peerID] = SHARE_SENDING
 				var id uint32
@@ -155,6 +153,7 @@ func (session *ShareSession) run() {
 					Keys: session.keys,
 					Data: datas,
 				}
+				fmt.Println("PREPARE SEND", dataPack)
 				session.appliHandler.ReliableSendTo(peerID, msg.FromHandlerID, SPROC_RECEIVER, session.encoder.Encode(&dataPack), id, session.sendResultChan)
 			} else {
 				//TODO
@@ -228,6 +227,7 @@ func (session *ShareRecvSession) Start() {
 		Hash: session.hash,
 	}
 	data := session.encoder.Encode(msg)
+	fmt.Println("ACC START", session.senderID, session.senderHandlerID)
 	session.appliHandler.SendTo(session.senderID, session.senderHandlerID, SPROC_SENDER, data)
 	//TODO
 	session.waitTimer = time.NewTimer(session.appliHandler.EstimateTimeOut(session.size))
@@ -252,6 +252,7 @@ func (session *ShareRecvSession) run() {
 			//TODO DataInfo
 			var dataPack DataPack
 			session.encoder.Decode(data.Data, &dataPack)
+			fmt.Println("DATA PACK", dataPack)
 			totData := make([]byte, 0)
 			for i, _ := range dataPack.Keys {
 				totData = append(totData, dataPack.Data[i]...)
@@ -263,10 +264,12 @@ func (session *ShareRecvSession) run() {
 				}
 				session.terminate(true)
 			} else {
+				fmt.Println("HASH ERROR")
 				session.terminate(false)
 			}
 			return
 		case <-session.waitTimer.C:
+			fmt.Println("TIME OUT")
 			session.terminate(false)
 			return
 		case <-session.ctrlChan:

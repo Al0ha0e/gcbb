@@ -7,17 +7,13 @@ import (
 	"github.com/gcbb/src/net"
 )
 
-const (
-	PPROC_WAIT     common.AppliListenerID = iota
-	PPROC_RECEIVER common.AppliListenerID = iota
-)
-
 type PurchaseRequestMsg struct {
 	ID   uint32
 	Keys []string
 }
 
 type PurchaseResult struct {
+	ID uint32
 	OK bool
 }
 
@@ -67,7 +63,7 @@ func (session *PurchaseSession) Stop() {
 func (session *PurchaseSession) terminate(ok bool) {
 	session.waitTimer.Stop()
 	go func() {
-		session.resultChan <- &PurchaseResult{OK: ok}
+		session.resultChan <- &PurchaseResult{ID: session.id, OK: ok}
 	}()
 }
 
