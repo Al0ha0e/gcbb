@@ -1,6 +1,7 @@
 package fs
 
 import (
+	"fmt"
 	"time"
 
 	"github.com/gcbb/src/common"
@@ -18,13 +19,15 @@ type PurchaseResult struct {
 }
 
 type PurchaseSession struct {
-	fs        FS
-	id        uint32
-	keys      []string
-	hash      common.HashVal
-	peer      common.NodeID
-	encoder   common.Encoder
-	waitTimer *time.Timer
+	fs           FS
+	id           uint32
+	size         uint32
+	keys         []string
+	hash         common.HashVal
+	peer         common.NodeID
+	appliHandler net.AppliNetHandler
+	encoder      common.Encoder
+	waitTimer    *time.Timer
 
 	dataChan   chan *net.ListenerNetMsg
 	resultChan chan *PurchaseResult
@@ -34,25 +37,37 @@ type PurchaseSession struct {
 func NewPurchaseSession(
 	fs FS,
 	id uint32,
+	size uint32,
 	keys []string,
 	hash common.HashVal,
 	peer common.NodeID,
+	appliHandler net.AppliNetHandler,
 	encoder common.Encoder,
 	resultChan chan *PurchaseResult) *PurchaseSession {
 	return &PurchaseSession{
-		fs:         fs,
-		id:         id,
-		keys:       keys,
-		hash:       hash,
-		peer:       peer,
-		encoder:    encoder,
-		dataChan:   make(chan *net.ListenerNetMsg, 1),
-		resultChan: resultChan,
-		ctrlChan:   make(chan struct{}, 1),
+		fs:           fs,
+		id:           id,
+		size:         size,
+		keys:         keys,
+		hash:         hash,
+		peer:         peer,
+		appliHandler: appliHandler,
+		encoder:      encoder,
+		dataChan:     make(chan *net.ListenerNetMsg, 1),
+		resultChan:   resultChan,
+		ctrlChan:     make(chan struct{}, 1),
 	}
 }
 
 func (session *PurchaseSession) Start() {
+	session.appliHandler.AddListener(PPROC_RECEIVER, session.dataChan)
+	msg := &PurchaseRequestMsg{
+		ID:   session.id,
+		Keys: session.keys,
+	}
+	data := session.encoder.Encode(msg)
+	session.appliHandler.SendTo(session.peer, net.StaticHandlerID, PPROC_WAIT, data)
+	session.waitTimer = time.NewTimer(2 * session.appliHandler.EstimateTimeOut(session.size))
 	go session.run()
 }
 
@@ -74,6 +89,7 @@ func (session *PurchaseSession) run() {
 			if msg.FromPeerID == session.peer {
 				var dataPack DataPack
 				session.encoder.Decode(msg.Data, &dataPack)
+				fmt.Println(dataPack)
 				totData := make([]byte, 0)
 				ok := true
 				for i, key := range dataPack.Keys {
@@ -94,6 +110,7 @@ func (session *PurchaseSession) run() {
 					}
 					session.terminate(true)
 				} else {
+					fmt.Println("BAD HASH", hash, session.hash)
 					session.terminate(false)
 				}
 				return
@@ -142,7 +159,7 @@ func NewSellSession(
 }
 
 func (session *SellSession) Start() {
-	datas := make([][]byte, len(session.keys))
+	datas := make([][]byte, 0, len(session.keys))
 	dataSize := 0
 	for _, key := range session.keys {
 		data, _ := session.fs.Get(key)

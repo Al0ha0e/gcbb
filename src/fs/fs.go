@@ -31,6 +31,7 @@ type FileShareInfo struct {
 
 type FilePurchaseInfo struct {
 	Keys       []string
+	Size       uint32
 	Peer       common.NodeID
 	Hash       common.HashVal
 	ResultChan chan *PurchaseResult
@@ -140,7 +141,8 @@ func (nfs *NaiveFS) run() {
 		case info := <-nfs.purchaseChan:
 			nfs.sessionId += 1
 			nfs.userPurchaseResultChans[nfs.sessionId] = info.ResultChan
-			session := NewPurchaseSession(nfs, nfs.sessionId, info.Keys, info.Hash, info.Peer, nfs.encoder, nfs.purchaseResultChan)
+			handler := nfs.appliNetHandlerFactory.GetHandler()
+			session := NewPurchaseSession(nfs, nfs.sessionId, info.Size, info.Keys, info.Hash, info.Peer, handler, nfs.encoder, nfs.purchaseResultChan)
 			session.Start()
 		case msg := <-nfs.puchaseRequestChan:
 			var req PurchaseRequestMsg
