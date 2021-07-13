@@ -54,6 +54,11 @@ func encodeTypes(buf io.Writer, tp reflect.Type, val reflect.Value, tag string) 
 		for i := 0; i < val.Len(); i++ {
 			encodeTypes(buf, tp.Elem(), val.Index(i), "")
 		}
+	case reflect.String:
+		binary.Write(buf, binary.BigEndian, uint32(val.Len()))
+		for i := 0; i < val.Len(); i++ {
+			encodeTypes(buf, val.Index(i).Type(), val.Index(i), "")
+		}
 	case reflect.Slice:
 		binary.Write(buf, binary.BigEndian, uint32(val.Len())) //MAY BUG
 		for i := 0; i < val.Len(); i++ {
@@ -143,6 +148,17 @@ func decodeTypes(buf io.Reader, tp reflect.Type, val reflect.Value, tag string) 
 			decodeTypes(buf, tp.Elem(), val.Index(i), "")
 		}
 		//fmt.Println("VAL", val)
+	case reflect.String:
+		var l uint32
+		binary.Read(buf, binary.BigEndian, &l)
+		bts := make([]byte, l)
+		for i := 0; i < int(l); i++ {
+			var b uint8
+			binary.Read(buf, binary.BigEndian, &b)
+			bts[i] = b
+		}
+		s := string(bts)
+		val.SetString(s)
 	case reflect.Slice:
 		var l uint32
 		binary.Read(buf, binary.BigEndian, &l)

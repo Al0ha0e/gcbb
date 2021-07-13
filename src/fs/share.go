@@ -54,6 +54,7 @@ type ShareSession struct {
 	origin       DataOrigin
 	peers        []common.NodeID
 	peerState    map[common.NodeID]ShareSessionState
+	sendingCnt   uint32
 	appliHandler net.AppliNetHandler
 	encoder      common.Encoder
 	sendTimer    *time.Timer
@@ -83,6 +84,7 @@ func NewShareSession(fs FS,
 		origin:          origin,
 		peers:           peers,
 		peerState:       peerState,
+		sendingCnt:      uint32(len(peers)),
 		appliHandler:    appliHandler,
 		encoder:         encoder,
 		acceptMsgChan:   make(chan *net.ListenerNetMsg, 10),
@@ -144,7 +146,7 @@ func (session *ShareSession) run() {
 						break
 					}
 				}
-				datas := make([][]byte, len(session.keys))
+				datas := make([][]byte, 0, len(session.keys))
 				for _, key := range session.keys {
 					data, _ := session.fs.Get(key)
 					datas = append(datas, data)
@@ -153,7 +155,7 @@ func (session *ShareSession) run() {
 					Keys: session.keys,
 					Data: datas,
 				}
-				fmt.Println("PREPARE SEND", dataPack)
+				fmt.Println("PREPARE SEND", session.keys, dataPack, session.encoder.Encode(&dataPack))
 				session.appliHandler.ReliableSendTo(peerID, msg.FromHandlerID, SPROC_RECEIVER, session.encoder.Encode(&dataPack), id, session.sendResultChan)
 			} else {
 				//TODO
@@ -162,6 +164,10 @@ func (session *ShareSession) run() {
 			if result.OK {
 				if state, ok := session.peerState[result.DstPeerID]; ok && state == SHARE_SENDING {
 					session.peerState[result.DstPeerID] = SHARE_FINISHED
+					session.sendingCnt -= 1
+					if session.sendingCnt == 0 {
+						session.terminate()
+					}
 				}
 			} else {
 			}
@@ -262,6 +268,7 @@ func (session *ShareRecvSession) run() {
 				for i, key := range dataPack.Keys {
 					session.fs.Set(key, dataPack.Data[i])
 				}
+				fmt.Println("SHARE RECV OK")
 				session.terminate(true)
 			} else {
 				fmt.Println("HASH ERROR")

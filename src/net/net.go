@@ -128,6 +128,8 @@ func (emulator *NetHandlerEmulator) ReliableSendTo(peer common.NodeID, msg *Appl
 			DstId: peer,
 			Data:  emulator.encoder.Encode(msg),
 		}
+		timer = time.NewTimer(4 * time.Second)
+		<-timer.C
 		resultChan <- &SendResult{
 			ID:            id,
 			OK:            true,
