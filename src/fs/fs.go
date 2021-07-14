@@ -37,8 +37,19 @@ type FilePurchaseInfo struct {
 	ResultChan chan *PurchaseResult
 }
 
+type FileInfo struct {
+	Owner common.NodeID
+	Peers map[common.NodeID]struct{}
+}
+
+type PeerInfo struct {
+	FilesFrom map[string]struct{}
+	FilesTo   map[string]struct{}
+}
+
 type FS interface {
 	Set(string, []byte)
+	SetWithInfo(k string, v []byte, info FileInfo)
 	Get(string) ([]byte, error)
 	Share(*FileShareInfo)
 	Purchase(*FilePurchaseInfo)
@@ -46,7 +57,10 @@ type FS interface {
 }
 
 type NaiveFS struct {
+	owner                  common.NodeID
 	db                     sync.Map
+	fileInfoDB             sync.Map
+	peerInfoDB             sync.Map
 	sessionId              uint32
 	staticAppliNetHandler  net.AppliNetHandler
 	appliNetHandlerFactory net.AppliNetHandlerFactory
@@ -66,6 +80,7 @@ type NaiveFS struct {
 
 func NewNaiveFS(handler net.AppliNetHandler, appliNetHandlerFactory net.AppliNetHandlerFactory, encoder common.Encoder) *NaiveFS {
 	ret := &NaiveFS{
+		sessionId:               0,
 		staticAppliNetHandler:   handler,
 		appliNetHandlerFactory:  appliNetHandlerFactory,
 		encoder:                 encoder,
@@ -83,8 +98,16 @@ func NewNaiveFS(handler net.AppliNetHandler, appliNetHandlerFactory net.AppliNet
 	return ret
 }
 
-func (nfs *NaiveFS) Set(k string, v []byte) {
+func (nfs *NaiveFS) SetWithInfo(k string, v []byte, info FileInfo) {
+	if _, ok := nfs.db.Load(k); ok {
+		return
+	}
 	nfs.db.Store(k, v)
+	nfs.fileInfoDB.Store(k, info)
+}
+
+func (nfs *NaiveFS) Set(k string, v []byte) {
+	nfs.SetWithInfo(k, v, FileInfo{Owner: nfs.owner, Peers: make(map[common.NodeID]struct{})})
 }
 
 func (nfs *NaiveFS) Get(k string) ([]byte, error) {
@@ -127,6 +150,7 @@ func (nfs *NaiveFS) run() {
 			var req ShareRequestMsg
 			nfs.encoder.Decode(msg.Data, &req)
 			fmt.Println("REQ", req)
+			//TODO check origin
 			handler := nfs.appliNetHandlerFactory.GetHandler()
 			session := NewShareRecvSession(nfs, req.ID, req.Hash, req.Size, msg.FromPeerID, msg.FromHandlerID, handler, nfs.encoder, nfs.shareRecvResultChan)
 			session.Start()
@@ -135,9 +159,49 @@ func (nfs *NaiveFS) run() {
 				nfs.userShareResultChans[result.ID] <- result
 				delete(nfs.userShareResultChans, result.ID)
 			}()
+			for peer, state := range result.PeerStates {
+				if state == SHARE_FINISHED {
+					pinfo, ok := nfs.peerInfoDB.Load(peer)
+					var peerInfo PeerInfo
+					if !ok {
+						peerInfo = PeerInfo{
+							FilesFrom: make(map[string]struct{}),
+							FilesTo:   make(map[string]struct{}),
+						}
+					} else {
+						peerInfo = pinfo.(PeerInfo)
+					}
+
+					for _, file := range result.Keys {
+						finfo, _ := nfs.fileInfoDB.Load(file)
+						fileInfo := finfo.(FileInfo)
+						fileInfo.Peers[peer] = struct{}{}
+						nfs.fileInfoDB.Store(file, fileInfo)
+						peerInfo.FilesTo[file] = struct{}{}
+					}
+					nfs.peerInfoDB.Store(peer, peerInfo)
+				}
+			}
 			fmt.Println("SHARE RESULT", result)
 		case result := <-nfs.shareRecvResultChan:
 			fmt.Println("SHARE RECV RESULT", result)
+			if result.OK {
+				pinfo, ok := nfs.peerInfoDB.Load(result.From)
+				var peerInfo PeerInfo
+				if !ok {
+					peerInfo = PeerInfo{
+						FilesFrom: make(map[string]struct{}),
+						FilesTo:   make(map[string]struct{}),
+					}
+				} else {
+					peerInfo = pinfo.(PeerInfo)
+				}
+				for _, file := range result.Keys {
+					peerInfo.FilesFrom[file] = struct{}{}
+				}
+				nfs.peerInfoDB.Store(result.From, peerInfo)
+				//TODO Maintain Info
+			}
 		case info := <-nfs.purchaseChan:
 			nfs.sessionId += 1
 			nfs.userPurchaseResultChans[nfs.sessionId] = info.ResultChan

@@ -9,11 +9,12 @@ import (
 type STSessionState uint8
 
 const (
-	STASK_UN         STSessionState = iota
-	STASK_DEPLOYING  STSessionState = iota
-	STASK_RUNNING    STSessionState = iota
-	STASK_TERMINATED STSessionState = iota
-	STASK_ABORTED    STSessionState = iota
+	STASK_UN          STSessionState = iota
+	STASK_DEPLOYING   STSessionState = iota
+	STASK_RUNNING     STSessionState = iota
+	STASK_TERMINATING STSessionState = iota
+	STASK_TERMINATED  STSessionState = iota
+	STASK_ABORTED     STSessionState = iota
 )
 
 type STPeerState uint8
@@ -23,11 +24,6 @@ const (
 	STPEER_RUNNING   STPeerState = iota
 	STPEER_SUBMITTED STPeerState = iota
 )
-
-type PeerAnswerMsg struct {
-	PeerID  common.NodeID
-	AnsHash []common.HashVal
-}
 
 type SubTaskSessionResult struct {
 }
@@ -47,20 +43,24 @@ func NewPeerTaskInfo(key [20]byte, state STPeerState) *PeerTaskInfo {
 }
 
 type SubTaskSession struct {
-	taskInfo     *SubTask
-	contractAddr chain.ContractAddress
-	mid          common.NodeID
-	key          [20]byte
-	state        STSessionState
-	trackers     *common.TrackerInfo
-	peers        map[common.NodeID]*PeerTaskInfo
-	answers      []map[common.HashVal]uint32
+	taskInfo        *SubTask
+	mid             common.NodeID
+	key             [20]byte
+	state           STSessionState
+	trackers        *common.TrackerInfo
+	peers           map[common.NodeID]*PeerTaskInfo
+	answers         []map[common.HashVal]uint32
+	validAnswers    []common.HashVal
+	validAnswerCnt  []uint32
+	answerCnt       uint32
+	contractHandler chain.CalcContractHandler
 
 	encoder        common.Encoder
 	handler        net.AppliNetHandler
-	deployChan     chan chain.DeployResult
+	deployChan     chan *chain.DeployResult
 	peerResChan    chan *net.ListenerNetMsg
-	peerAnswerChan chan *PeerAnswerMsg
+	peerAnswerChan chan *chain.CallResult
+	terminateChan  chan *chain.CallResult
 	ctrlChan       chan struct{}
 }
 
@@ -69,8 +69,15 @@ func NewSubTaskSession() *SubTaskSession {
 }
 
 func (session *SubTaskSession) Start() {
-	//TODO Deploy Contract
+	session.deployContract()
 	go session.run()
+}
+
+func (session *SubTaskSession) deployContract() {
+	//TODO
+	args := make([]interface{}, 0)
+	session.contractHandler.Deploy(args, session.deployChan)
+	session.state = STASK_DEPLOYING
 }
 
 func (session *SubTaskSession) publishTask() {
@@ -96,7 +103,7 @@ func (session *SubTaskSession) run() {
 		case result := <-session.deployChan:
 			if session.state == STASK_DEPLOYING {
 				if result.OK {
-					session.contractAddr = result.Address
+					//session.contractHandler.ListenSubmit(session.)
 					session.publishTask()
 				} else {
 					//TODO
@@ -104,7 +111,6 @@ func (session *SubTaskSession) run() {
 				}
 			} else {
 				//TODO
-				return
 			}
 		case msg := <-session.peerResChan:
 			var resMsg common.WorkerResMsg
@@ -126,26 +132,47 @@ func (session *SubTaskSession) run() {
 				//TODO
 			}
 		case msg := <-session.peerAnswerChan:
-			if info, ok := session.peers[msg.PeerID]; ok && info.State == STPEER_RUNNING {
+			if info, ok := session.peers[msg.Caller]; ok && info.State == STPEER_RUNNING {
 				info.State = STPEER_SUBMITTED
 				confoundKey := info.ConfoundKey
-				for i, hash := range msg.AnsHash {
+				ansHash := msg.Args[1].([]common.HashVal)
+				session.answerCnt += 1
+				for i, hash := range ansHash {
 					answerInt := common.BytesToBigInt(hash[:])
 					answerInt.Sub(answerInt, common.BytesToBigInt(confoundKey[:]))
 					var answer common.HashVal
 					copy(answer[:], answerInt.Bytes()[:20])
 					cnt, has := session.answers[i][answer]
 					if has {
-						session.answers[i][answer] = cnt + 1
+						cnt += 1
 					} else {
-						session.answers[i][answer] = 1
+						cnt = 1
 					}
+					session.answers[i][answer] = cnt
 					info.Answers = append(info.Answers, answer)
+					if session.validAnswerCnt[i] < cnt {
+						session.validAnswers[i] = answer
+						session.validAnswerCnt[i] = cnt
+					}
 				}
 				//TODO Check Termination
+				canTerminate := true
+				for _, cnt := range session.validAnswerCnt {
+					if cnt*2 <= session.answerCnt {
+						canTerminate = false
+						break
+					}
+				}
+				if canTerminate {
+					session.state = STASK_TERMINATING
+					session.contractHandler.Terminate(session.key, session.terminateChan)
+				}
 			} else {
 				//TODO
 			}
+		case <-session.terminateChan:
+			session.state = STASK_TERMINATED
+			return
 		case <-session.ctrlChan:
 			return
 		}

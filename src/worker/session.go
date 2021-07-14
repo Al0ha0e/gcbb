@@ -21,16 +21,16 @@ const (
 )
 
 type WorkerSession struct {
-	fs           fs.FS
-	state        WorkerSessionState
-	code         []byte
-	data         [][]byte
-	chainHandler chain.ContractHandler
-	netHandler   net.AppliNetHandler
-	masterID     common.NodeID
-	workerID     common.NodeID
-	taskID       common.TaskID
-	confoundKey  [20]byte
+	fs              fs.FS
+	state           WorkerSessionState
+	code            []byte
+	data            [][]byte
+	contractHandler chain.CalcContractHandler
+	netHandler      net.AppliNetHandler
+	masterID        common.NodeID
+	workerID        common.NodeID
+	taskID          common.TaskID
+	confoundKey     [20]byte
 
 	dstHandler uint16
 	encoder    common.Encoder
@@ -43,7 +43,8 @@ type WorkerSession struct {
 }
 
 func (session *WorkerSession) Start() {
-	//TODO Validation
+	session.contractHandler.Validate(session.validateChan)
+	session.state = WS_PREPARING
 	go session.run()
 }
 

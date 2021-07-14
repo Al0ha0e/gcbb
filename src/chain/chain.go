@@ -1,21 +1,22 @@
 package chain
 
-type ContractAddress [20]byte
+import "github.com/gcbb/src/common"
 
 type DeployResult struct {
-	Address ContractAddress
+	Address common.ContractAddress
 	OK      bool
 }
 
 type CallResult struct {
-	OK   bool
-	Args []interface{}
+	OK     bool
+	Caller common.NodeID
+	Args   []interface{}
 }
 
 type ContractHandler interface {
 	Deploy(args []interface{}, result chan *DeployResult)
-	Validate(address ContractAddress, result chan *DeployResult)
-	GetAddress() (bool, ContractAddress)
+	Validate(address common.ContractAddress, result chan *DeployResult)
+	GetAddress() (bool, common.ContractAddress)
 	Call(method string, args []interface{}, result chan *CallResult)
 	Listen(method string, result chan *CallResult)
 }

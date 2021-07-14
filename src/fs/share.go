@@ -44,7 +44,16 @@ const (
 
 type ShareResult struct {
 	ID         uint32
-	PeerStates []ShareSessionState
+	Keys       []string
+	PeerStates map[common.NodeID]ShareSessionState
+}
+
+func NewShareResult(id uint32, keys []string, peerStates map[common.NodeID]ShareSessionState) *ShareResult {
+	return &ShareResult{
+		ID:         id,
+		Keys:       keys,
+		PeerStates: peerStates,
+	}
 }
 
 type ShareSession struct {
@@ -116,16 +125,8 @@ func (session *ShareSession) Start() {
 
 func (session *ShareSession) terminate() {
 	session.sendTimer.Stop()
-	states := make([]ShareSessionState, len(session.peers))
-	for i, peer := range session.peers {
-		states[i] = session.peerState[peer]
-	}
-
 	go func() {
-		session.shareResultChan <- &ShareResult{
-			ID:         session.id,
-			PeerStates: states,
-		}
+		session.shareResultChan <- NewShareResult(session.id, session.keys, session.peerState)
 	}()
 }
 
@@ -182,7 +183,17 @@ func (session *ShareSession) run() {
 }
 
 type ShareRecvResult struct {
-	OK bool
+	OK   bool
+	From common.NodeID
+	Keys []string
+}
+
+func NewShareRecvRsult(ok bool, from common.NodeID, keys []string) *ShareRecvResult {
+	return &ShareRecvResult{
+		OK:   ok,
+		From: from,
+		Keys: keys,
+	}
 }
 
 type ShareRecvSession struct {
@@ -244,10 +255,10 @@ func (session *ShareRecvSession) Stop() {
 	close(session.ctrlChan)
 }
 
-func (session *ShareRecvSession) terminate(ok bool) {
+func (session *ShareRecvSession) terminate(ok bool, keys []string) {
 	session.waitTimer.Stop()
 	go func() {
-		session.resultChan <- &ShareRecvResult{OK: ok}
+		session.resultChan <- NewShareRecvRsult(ok, session.senderID, keys)
 	}()
 }
 
@@ -266,21 +277,21 @@ func (session *ShareRecvSession) run() {
 			hash := common.GenSHA1(totData)
 			if hash == session.hash {
 				for i, key := range dataPack.Keys {
-					session.fs.Set(key, dataPack.Data[i])
+					session.fs.SetWithInfo(key, dataPack.Data[i], FileInfo{Owner: session.senderID, Peers: make(map[common.NodeID]struct{})})
 				}
 				fmt.Println("SHARE RECV OK")
-				session.terminate(true)
+				session.terminate(true, dataPack.Keys)
 			} else {
 				fmt.Println("HASH ERROR")
-				session.terminate(false)
+				session.terminate(false, dataPack.Keys)
 			}
 			return
 		case <-session.waitTimer.C:
 			fmt.Println("TIME OUT")
-			session.terminate(false)
+			session.terminate(false, nil)
 			return
 		case <-session.ctrlChan:
-			session.terminate(false)
+			session.terminate(false, nil)
 			return
 		}
 	}
