@@ -59,9 +59,7 @@ func NewShareResult(id uint32, keys []string, peerStates map[common.NodeID]Share
 type ShareSession struct {
 	fs           FS
 	id           uint32
-	keys         []string
-	origin       DataOrigin
-	peers        []common.NodeID
+	shareInfo    *FileShareInfo
 	peerState    map[common.NodeID]ShareSessionState
 	sendingCnt   uint32
 	appliHandler net.AppliNetHandler
@@ -76,24 +74,20 @@ type ShareSession struct {
 
 func NewShareSession(fs FS,
 	id uint32,
-	keys []string,
-	origin DataOrigin,
-	peers []common.NodeID,
+	shareInfo *FileShareInfo,
 	appliHandler net.AppliNetHandler,
 	encoder common.Encoder,
 	shareResultChan chan<- *ShareResult) *ShareSession {
 	peerState := make(map[common.NodeID]ShareSessionState)
-	for _, peer := range peers {
+	for _, peer := range shareInfo.Peers {
 		peerState[peer] = SHARE_ST
 	}
 	return &ShareSession{
 		fs:              fs,
 		id:              id,
-		keys:            keys,
-		origin:          origin,
-		peers:           peers,
+		shareInfo:       shareInfo,
 		peerState:       peerState,
-		sendingCnt:      uint32(len(peers)),
+		sendingCnt:      uint32(len(shareInfo.Peers)),
 		appliHandler:    appliHandler,
 		encoder:         encoder,
 		acceptMsgChan:   make(chan *net.ListenerNetMsg, 10),
@@ -107,17 +101,17 @@ func (session *ShareSession) Start() {
 	session.appliHandler.AddListener(SPROC_SENDER, session.acceptMsgChan)
 	dataSize := 0
 	totData := make([]byte, 0)
-	for _, key := range session.keys {
+	for _, key := range session.shareInfo.Keys {
 		data, _ := session.fs.Get(key)
 		dataSize += len(data)
 		totData = append(totData, data...)
 	}
 	hash := common.GenSHA1(totData)
-	msg := NewShareRequest(session.origin, session.id, hash, uint32(dataSize))
+	msg := NewShareRequest(session.shareInfo.Origin, session.id, hash, uint32(dataSize))
 	data := session.encoder.Encode(msg)
-	for i := 0; i < len(session.peers); i++ {
-		session.peerState[session.peers[i]] = SHARE_ST
-		session.appliHandler.SendTo(session.peers[i], net.StaticHandlerID, SPROC_WAIT, data)
+	for i := 0; i < len(session.shareInfo.Peers); i++ {
+		session.peerState[session.shareInfo.Peers[i]] = SHARE_ST
+		session.appliHandler.SendTo(session.shareInfo.Peers[i], net.StaticHandlerID, SPROC_WAIT, data)
 	}
 	session.sendTimer = time.NewTimer(2 * session.appliHandler.EstimateTimeOut(msg.Size))
 	go session.run()
@@ -126,7 +120,7 @@ func (session *ShareSession) Start() {
 func (session *ShareSession) terminate() {
 	session.sendTimer.Stop()
 	go func() {
-		session.shareResultChan <- NewShareResult(session.id, session.keys, session.peerState)
+		session.shareResultChan <- NewShareResult(session.id, session.shareInfo.Keys, session.peerState)
 	}()
 }
 
@@ -141,22 +135,22 @@ func (session *ShareSession) run() {
 			if state, ok := session.peerState[peerID]; ok && state == SHARE_ST {
 				session.peerState[peerID] = SHARE_SENDING
 				var id uint32
-				for i := 0; i < len(session.peers); i++ {
-					if session.peers[i] == peerID {
+				for i := 0; i < len(session.shareInfo.Peers); i++ {
+					if session.shareInfo.Peers[i] == peerID {
 						id = uint32(i)
 						break
 					}
 				}
-				datas := make([][]byte, 0, len(session.keys))
-				for _, key := range session.keys {
+				datas := make([][]byte, 0, len(session.shareInfo.Keys))
+				for _, key := range session.shareInfo.Keys {
 					data, _ := session.fs.Get(key)
 					datas = append(datas, data)
 				}
 				dataPack := &DataPack{
-					Keys: session.keys,
+					Keys: session.shareInfo.Keys,
 					Data: datas,
 				}
-				fmt.Println("PREPARE SEND", session.keys, dataPack, session.encoder.Encode(&dataPack))
+				fmt.Println("PREPARE SEND", session.shareInfo.Keys, dataPack, session.encoder.Encode(&dataPack))
 				session.appliHandler.ReliableSendTo(peerID, msg.FromHandlerID, SPROC_RECEIVER, session.encoder.Encode(&dataPack), id, session.sendResultChan)
 			} else {
 				//TODO

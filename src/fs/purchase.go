@@ -14,17 +14,25 @@ type PurchaseRequestMsg struct {
 }
 
 type PurchaseResult struct {
-	ID uint32
-	OK bool
+	ID   uint32
+	OK   bool
+	Peer common.NodeID
+	Keys []string
+}
+
+func NewPurchaseResult(id uint32, ok bool, peer common.NodeID, keys []string) *PurchaseResult {
+	return &PurchaseResult{
+		ID:   id,
+		OK:   ok,
+		Peer: peer,
+		Keys: keys,
+	}
 }
 
 type PurchaseSession struct {
 	fs           FS
 	id           uint32
-	size         uint32
-	keys         []string
-	hash         common.HashVal
-	peer         common.NodeID
+	purchaseInfo *FilePurchaseInfo
 	appliHandler net.AppliNetHandler
 	encoder      common.Encoder
 	waitTimer    *time.Timer
@@ -37,20 +45,14 @@ type PurchaseSession struct {
 func NewPurchaseSession(
 	fs FS,
 	id uint32,
-	size uint32,
-	keys []string,
-	hash common.HashVal,
-	peer common.NodeID,
+	purchaseInfo *FilePurchaseInfo,
 	appliHandler net.AppliNetHandler,
 	encoder common.Encoder,
 	resultChan chan *PurchaseResult) *PurchaseSession {
 	return &PurchaseSession{
 		fs:           fs,
 		id:           id,
-		size:         size,
-		keys:         keys,
-		hash:         hash,
-		peer:         peer,
+		purchaseInfo: purchaseInfo,
 		appliHandler: appliHandler,
 		encoder:      encoder,
 		dataChan:     make(chan *net.ListenerNetMsg, 1),
@@ -63,11 +65,11 @@ func (session *PurchaseSession) Start() {
 	session.appliHandler.AddListener(PPROC_RECEIVER, session.dataChan)
 	msg := &PurchaseRequestMsg{
 		ID:   session.id,
-		Keys: session.keys,
+		Keys: session.purchaseInfo.Keys,
 	}
 	data := session.encoder.Encode(msg)
-	session.appliHandler.SendTo(session.peer, net.StaticHandlerID, PPROC_WAIT, data)
-	session.waitTimer = time.NewTimer(2 * session.appliHandler.EstimateTimeOut(session.size))
+	session.appliHandler.SendTo(session.purchaseInfo.Peer, net.StaticHandlerID, PPROC_WAIT, data)
+	session.waitTimer = time.NewTimer(2 * session.appliHandler.EstimateTimeOut(session.purchaseInfo.Size))
 	go session.run()
 }
 
@@ -78,7 +80,7 @@ func (session *PurchaseSession) Stop() {
 func (session *PurchaseSession) terminate(ok bool) {
 	session.waitTimer.Stop()
 	go func() {
-		session.resultChan <- &PurchaseResult{ID: session.id, OK: ok}
+		session.resultChan <- NewPurchaseResult(session.id, ok, session.purchaseInfo.Peer, session.purchaseInfo.Keys)
 	}()
 }
 
@@ -86,7 +88,7 @@ func (session *PurchaseSession) run() {
 	for {
 		select {
 		case msg := <-session.dataChan:
-			if msg.FromPeerID == session.peer {
+			if msg.FromPeerID == session.purchaseInfo.Peer {
 				var dataPack DataPack
 				session.encoder.Decode(msg.Data, &dataPack)
 				fmt.Println(dataPack)
@@ -94,7 +96,7 @@ func (session *PurchaseSession) run() {
 				ok := true
 				for i, key := range dataPack.Keys {
 					totData = append(totData, dataPack.Data[i]...)
-					if key != session.keys[i] {
+					if key != session.purchaseInfo.Keys[i] {
 						ok = false
 						break
 					}
@@ -104,13 +106,13 @@ func (session *PurchaseSession) run() {
 					return
 				}
 				hash := common.GenSHA1(totData)
-				if hash == session.hash {
+				if hash == session.purchaseInfo.Hash {
 					for i, key := range dataPack.Keys {
 						session.fs.Set(key, dataPack.Data[i])
 					}
 					session.terminate(true)
 				} else {
-					fmt.Println("BAD HASH", hash, session.hash)
+					fmt.Println("BAD HASH", hash, session.purchaseInfo.Hash)
 					session.terminate(false)
 				}
 				return

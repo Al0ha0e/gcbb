@@ -15,6 +15,8 @@ const (
 	SPROC_RECEIVER common.AppliListenerID = iota
 	PPROC_WAIT     common.AppliListenerID = iota
 	PPROC_RECEIVER common.AppliListenerID = iota
+	TPROC_WAIT     common.AppliListenerID = iota
+	TPROC_RECEIVER common.AppliListenerID = iota
 )
 
 type DataPack struct {
@@ -35,6 +37,14 @@ type FilePurchaseInfo struct {
 	Peer       common.NodeID
 	Hash       common.HashVal
 	ResultChan chan *PurchaseResult
+}
+
+type ParalleledPurchaseInfo struct {
+	KeyGroup   [][]string
+	Sizes      []uint32
+	Hashes     []common.HashVal
+	Trackers   []common.NodeID
+	ResultChan chan *ParalleledPurchaseResult
 }
 
 type FileInfo struct {
@@ -66,34 +76,42 @@ type NaiveFS struct {
 	appliNetHandlerFactory net.AppliNetHandlerFactory
 	encoder                common.Encoder
 
-	shareChan               chan *FileShareInfo
-	shareResultChan         chan *ShareResult
-	userShareResultChans    map[uint32]chan *ShareResult
-	shareRequestChan        chan *net.ListenerNetMsg
-	shareRecvResultChan     chan *ShareRecvResult
-	purchaseChan            chan *FilePurchaseInfo
-	purchaseResultChan      chan *PurchaseResult
-	userPurchaseResultChans map[uint32]chan *PurchaseResult
-	puchaseRequestChan      chan *net.ListenerNetMsg
-	ctrlChan                chan struct{}
+	shareChan                         chan *FileShareInfo
+	shareResultChan                   chan *ShareResult
+	userShareResultChans              map[uint32]chan *ShareResult
+	shareRequestChan                  chan *net.ListenerNetMsg
+	shareRecvResultChan               chan *ShareRecvResult
+	purchaseChan                      chan *FilePurchaseInfo
+	purchaseResultChan                chan *PurchaseResult
+	userPurchaseResultChans           map[uint32]chan *PurchaseResult
+	puchaseRequestChan                chan *net.ListenerNetMsg
+	paralleledPurchaseChan            chan *ParalleledPurchaseInfo
+	paralleledPurchaseResultChan      chan *ParalleledPurchaseResult
+	userParalleledPurchaseResultChans map[uint32]chan *ParalleledPurchaseResult
+	trackerRequestChan                chan *net.ListenerNetMsg
+	ctrlChan                          chan struct{}
 }
 
 func NewNaiveFS(handler net.AppliNetHandler, appliNetHandlerFactory net.AppliNetHandlerFactory, encoder common.Encoder) *NaiveFS {
 	ret := &NaiveFS{
-		sessionId:               0,
-		staticAppliNetHandler:   handler,
-		appliNetHandlerFactory:  appliNetHandlerFactory,
-		encoder:                 encoder,
-		shareChan:               make(chan *FileShareInfo, 10),
-		shareResultChan:         make(chan *ShareResult, 10),
-		userShareResultChans:    make(map[uint32]chan *ShareResult),
-		shareRequestChan:        make(chan *net.ListenerNetMsg, 10),
-		shareRecvResultChan:     make(chan *ShareRecvResult, 10),
-		purchaseChan:            make(chan *FilePurchaseInfo, 10),
-		purchaseResultChan:      make(chan *PurchaseResult, 10),
-		userPurchaseResultChans: make(map[uint32]chan *PurchaseResult),
-		puchaseRequestChan:      make(chan *net.ListenerNetMsg, 10),
-		ctrlChan:                make(chan struct{}, 1),
+		sessionId:                         0,
+		staticAppliNetHandler:             handler,
+		appliNetHandlerFactory:            appliNetHandlerFactory,
+		encoder:                           encoder,
+		shareChan:                         make(chan *FileShareInfo, 10),
+		shareResultChan:                   make(chan *ShareResult, 10),
+		userShareResultChans:              make(map[uint32]chan *ShareResult),
+		shareRequestChan:                  make(chan *net.ListenerNetMsg, 10),
+		shareRecvResultChan:               make(chan *ShareRecvResult, 10),
+		purchaseChan:                      make(chan *FilePurchaseInfo, 10),
+		purchaseResultChan:                make(chan *PurchaseResult, 10),
+		userPurchaseResultChans:           make(map[uint32]chan *PurchaseResult),
+		puchaseRequestChan:                make(chan *net.ListenerNetMsg, 10),
+		paralleledPurchaseChan:            make(chan *ParalleledPurchaseInfo, 10),
+		paralleledPurchaseResultChan:      make(chan *ParalleledPurchaseResult, 10),
+		userParalleledPurchaseResultChans: make(map[uint32]chan *ParalleledPurchaseResult),
+		trackerRequestChan:                make(chan *net.ListenerNetMsg, 10),
+		ctrlChan:                          make(chan struct{}, 1),
 	}
 	return ret
 }
@@ -130,6 +148,7 @@ func (nfs *NaiveFS) Purchase(info *FilePurchaseInfo) {
 func (nfs *NaiveFS) Start() {
 	nfs.staticAppliNetHandler.AddListener(SPROC_WAIT, nfs.shareRequestChan)
 	nfs.staticAppliNetHandler.AddListener(PPROC_WAIT, nfs.puchaseRequestChan)
+	nfs.staticAppliNetHandler.AddListener(TPROC_WAIT, nfs.trackerRequestChan)
 	go nfs.run()
 }
 
@@ -144,7 +163,7 @@ func (nfs *NaiveFS) run() {
 			nfs.sessionId += 1
 			nfs.userShareResultChans[nfs.sessionId] = info.ResultChan
 			handler := nfs.appliNetHandlerFactory.GetHandler()
-			session := NewShareSession(nfs, nfs.sessionId, info.Keys, info.Origin, info.Peers, handler, nfs.encoder, nfs.shareResultChan)
+			session := NewShareSession(nfs, nfs.sessionId, info, handler, nfs.encoder, nfs.shareResultChan)
 			session.Start()
 		case msg := <-nfs.shareRequestChan:
 			var req ShareRequestMsg
@@ -184,7 +203,6 @@ func (nfs *NaiveFS) run() {
 			}
 			fmt.Println("SHARE RESULT", result)
 		case result := <-nfs.shareRecvResultChan:
-			fmt.Println("SHARE RECV RESULT", result)
 			if result.OK {
 				pinfo, ok := nfs.peerInfoDB.Load(result.From)
 				var peerInfo PeerInfo
@@ -202,11 +220,12 @@ func (nfs *NaiveFS) run() {
 				nfs.peerInfoDB.Store(result.From, peerInfo)
 				//TODO Maintain Info
 			}
+			fmt.Println("SHARE RECV RESULT", result)
 		case info := <-nfs.purchaseChan:
 			nfs.sessionId += 1
 			nfs.userPurchaseResultChans[nfs.sessionId] = info.ResultChan
 			handler := nfs.appliNetHandlerFactory.GetHandler()
-			session := NewPurchaseSession(nfs, nfs.sessionId, info.Size, info.Keys, info.Hash, info.Peer, handler, nfs.encoder, nfs.purchaseResultChan)
+			session := NewPurchaseSession(nfs, nfs.sessionId, info, handler, nfs.encoder, nfs.purchaseResultChan)
 			session.Start()
 		case msg := <-nfs.puchaseRequestChan:
 			var req PurchaseRequestMsg
@@ -220,6 +239,42 @@ func (nfs *NaiveFS) run() {
 				delete(nfs.userPurchaseResultChans, result.ID)
 			}()
 			fmt.Println("PURCHASE RESULT", result)
+		case info := <-nfs.paralleledPurchaseChan:
+			nfs.sessionId += 1
+			nfs.userParalleledPurchaseResultChans[nfs.sessionId] = info.ResultChan
+			handler := nfs.appliNetHandlerFactory.GetHandler()
+			session := NewParalleledPurchaseSession(nfs, nfs.sessionId, info, handler, nfs.encoder, nfs.paralleledPurchaseResultChan)
+			session.Start()
+		case result := <-nfs.paralleledPurchaseResultChan:
+			go func() {
+				nfs.userParalleledPurchaseResultChans[result.ID] <- result
+				delete(nfs.userParalleledPurchaseResultChans, result.ID)
+			}()
+			fmt.Println("P_PURCHASE RESULT", result)
+		case msg := <-nfs.trackerRequestChan:
+			var req TrackerRequestMsg
+			nfs.encoder.Decode(msg.Data, &req)
+			res := &TrackerResultMsg{
+				PeerGroup: make([][]common.NodeID, len(req.KeyGroup)),
+			}
+			for i, keys := range req.KeyGroup {
+				peerMap := make(map[common.NodeID]struct{})
+				for _, key := range keys {
+					finfo, ok := nfs.fileInfoDB.Load(key)
+					if ok {
+						fileInfo := finfo.(FileInfo)
+						for peer, _ := range fileInfo.Peers {
+							peerMap[peer] = struct{}{}
+						}
+					}
+				}
+				peers := make([]common.NodeID, 0, len(peerMap))
+				for peer, _ := range peerMap {
+					peers = append(peers, peer)
+				}
+				res.PeerGroup[i] = peers
+			}
+			nfs.staticAppliNetHandler.SendTo(msg.FromPeerID, msg.FromHandlerID, TPROC_RECEIVER, nfs.encoder.Encode(res))
 		case <-nfs.ctrlChan:
 			return
 		}
