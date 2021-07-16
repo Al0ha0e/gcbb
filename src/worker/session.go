@@ -21,30 +21,53 @@ const (
 )
 
 type WorkerSession struct {
+	workerID        common.NodeID
 	fs              fs.FS
 	state           WorkerSessionState
 	code            []byte
-	data            [][]byte
+	masterHandlerID uint16
+	metaInfo        *common.TaskMetaInfo
 	contractHandler chain.CalcContractHandler
-	netHandler      net.AppliNetHandler
-	masterID        common.NodeID
-	workerID        common.NodeID
-	taskID          common.TaskID
-	confoundKey     [20]byte
+	appliNetHandler net.AppliNetHandler
+	encoder         common.Encoder
 
-	dstHandler uint16
-	encoder    common.Encoder
+	validateChan       chan *chain.DeployResult
+	metaChan           chan *net.ListenerNetMsg
+	purchaseResultChan chan *fs.ParalleledPurchaseResult
+	ctrlChan           chan struct{}
+	//resultChan         chan []common.HashVal
+}
 
-	validateChan chan *chain.DeployResult
-	metaChan     chan *net.ListenerNetMsg
-	dataChan     chan [][]byte
-	resultChan   chan []common.HashVal
-	ctrlChan     chan struct{}
+func NewWorkerSession(
+	workerID common.NodeID,
+	fileSystem fs.FS,
+	code []byte,
+	masterHandlerID uint16,
+	// contractHandler chain.CalcContractHandler,
+	appliNetHandler net.AppliNetHandler,
+	encoder common.Encoder) *WorkerSession {
+	ret := &WorkerSession{
+		workerID:        workerID,
+		fs:              fileSystem,
+		state:           WS_INITED,
+		code:            code,
+		masterHandlerID: masterHandlerID,
+		metaInfo:        &common.TaskMetaInfo{},
+		// contractHandler:    contractHandler,
+		appliNetHandler:    appliNetHandler,
+		encoder:            encoder,
+		validateChan:       make(chan *chain.DeployResult, 1),
+		metaChan:           make(chan *net.ListenerNetMsg, 1),
+		purchaseResultChan: make(chan *fs.ParalleledPurchaseResult, 1),
+		ctrlChan:           make(chan struct{}, 1),
+	}
+	return ret
 }
 
 func (session *WorkerSession) Start() {
 	session.contractHandler.Validate(session.validateChan)
 	session.state = WS_PREPARING
+	session.appliNetHandler.AddListener(common.CPROC_META, session.metaChan)
 	go session.run()
 }
 
@@ -62,10 +85,10 @@ func (session *WorkerSession) run() {
 					//TODO Check Other
 					msg := &common.WorkerResMsg{
 						WorkerID: session.workerID,
-						MasterID: session.masterID,
-						TaskID:   session.taskID,
+						MasterID: session.metaInfo.MasterID,
+						TaskID:   session.metaInfo.TaskID,
 					}
-					session.netHandler.SendTo(session.masterID, session.dstHandler, common.CPROC_RES, session.encoder.Encode(msg))
+					session.appliNetHandler.SendTo(session.metaInfo.MasterID, session.masterHandlerID, common.CPROC_RES, session.encoder.Encode(msg))
 				} else {
 					//TODO
 				}
@@ -74,37 +97,42 @@ func (session *WorkerSession) run() {
 			}
 		case msg := <-session.metaChan:
 			if session.state == WS_STARTED {
-				var meta common.TaskMetaMsg
+				var meta common.TaskMetaInfo
 				session.encoder.Decode(msg.Data, &meta)
 
-				if meta.MasterID == session.masterID &&
-					meta.TaskID == session.taskID &&
+				if meta.MasterID == session.metaInfo.MasterID &&
+					meta.TaskID == session.metaInfo.TaskID &&
 					session.checkSign(meta.Sign) {
-					session.confoundKey = meta.ConfoundKey
+					session.metaInfo = &meta
 					session.state = WS_FETCHING
 					//TODO Fetch Data
-					info := &fs.FilePurchaseInfo{}
-					session.fs.Purchase(info)
+					info := fs.NewParalleledPurchaseInfo(
+						meta.KeyGroup,
+						meta.Sizes,
+						meta.Hashes,
+						meta.Trackers,
+						session.purchaseResultChan,
+					)
+					session.fs.ParalleledPurchase(info)
 				}
 			} else {
 				//TODO
 			}
-		case data := <-session.dataChan:
+		case <-session.purchaseResultChan:
 			if session.state == WS_FETCHING {
 				session.state = WS_RUNNING
-				session.data = data
 				//TODO RUN
 			} else { //TODO
 			}
-		case <-session.resultChan:
-			if session.state == WS_RUNNING {
-				session.state = WS_UPLOADING
-				//TODO upload
-			} else {
-				//TODO
-			}
 		case <-session.ctrlChan:
 			return
+			// case <-session.resultChan:
+			// 	if session.state == WS_RUNNING {
+			// 		session.state = WS_UPLOADING
+			// 		//TODO upload
+			// 	} else {
+			// 		//TODO
+			// 	}
 		}
 	}
 }

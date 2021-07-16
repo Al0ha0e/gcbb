@@ -45,6 +45,7 @@ type AppliNetHandler interface {
 	RemoveListener(listenerID common.AppliListenerID)
 	SendTo(peer common.NodeID, handlerID uint16, listenerID common.AppliListenerID, data []byte)
 	ReliableSendTo(peer common.NodeID, handlerID uint16, listenerID common.AppliListenerID, data []byte, id uint32, resultChan chan *SendResult)
+	Broadcast(listenerID common.AppliListenerID, data []byte)
 	EstimateTimeOut(byteCnt uint32) time.Duration
 	OnMsgArrive(from common.NodeID, msg *AppliNetMsg)
 }
@@ -81,6 +82,12 @@ func (handler *NaiveAppliNetHandler) ReliableSendTo(peer common.NodeID, handlerI
 	msg := NewAppliNetMsg(handler.id, handlerID, listenerID, data)
 	handler.netHandler.ReliableSendTo(peer, msg, id, resultChan)
 }
+
+func (handler *NaiveAppliNetHandler) Broadcast(listenerID common.AppliListenerID, data []byte) {
+	msg := NewAppliNetMsg(handler.id, StaticHandlerID, listenerID, data)
+	handler.netHandler.Broadcast(msg)
+}
+
 func (handler *NaiveAppliNetHandler) EstimateTimeOut(byteCnt uint32) time.Duration {
 	return time.Duration(byteCnt) * time.Second
 }

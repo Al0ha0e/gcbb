@@ -1,22 +1,15 @@
 package fs
 
+//TODO Do not purchase local file
+//TODO Node get shared should send heartbeat signals to the origin node
+//TODO The heartbeat signal contains file delete info
+
 import (
 	"fmt"
 	"sync"
 
 	"github.com/gcbb/src/common"
 	"github.com/gcbb/src/net"
-)
-
-const (
-	//
-	SPROC_WAIT     common.AppliListenerID = iota
-	SPROC_SENDER   common.AppliListenerID = iota
-	SPROC_RECEIVER common.AppliListenerID = iota
-	PPROC_WAIT     common.AppliListenerID = iota
-	PPROC_RECEIVER common.AppliListenerID = iota
-	TPROC_WAIT     common.AppliListenerID = iota
-	TPROC_RECEIVER common.AppliListenerID = iota
 )
 
 type DataPack struct {
@@ -31,6 +24,18 @@ type FileShareInfo struct {
 	ResultChan chan *ShareResult
 }
 
+func NewFileShareInfo(keys []string,
+	origin DataOrigin,
+	peers []common.NodeID,
+	resultChan chan *ShareResult) *FileShareInfo {
+	return &FileShareInfo{
+		Keys:       keys,
+		Origin:     origin,
+		Peers:      peers,
+		ResultChan: resultChan,
+	}
+}
+
 type FilePurchaseInfo struct {
 	Keys       []string
 	Size       uint32
@@ -39,12 +44,40 @@ type FilePurchaseInfo struct {
 	ResultChan chan *PurchaseResult
 }
 
+func NewFilePurchaseInfo(keys []string,
+	size uint32,
+	peer common.NodeID,
+	hash common.HashVal,
+	resultChan chan *PurchaseResult) *FilePurchaseInfo {
+	return &FilePurchaseInfo{
+		Keys:       keys,
+		Size:       size,
+		Peer:       peer,
+		Hash:       hash,
+		ResultChan: resultChan,
+	}
+}
+
 type ParalleledPurchaseInfo struct {
 	KeyGroup   [][]string
 	Sizes      []uint32
 	Hashes     []common.HashVal
 	Trackers   []common.NodeID
 	ResultChan chan *ParalleledPurchaseResult
+}
+
+func NewParalleledPurchaseInfo(keyGroup [][]string,
+	sizes []uint32,
+	hashes []common.HashVal,
+	trackers []common.NodeID,
+	resultChan chan *ParalleledPurchaseResult) *ParalleledPurchaseInfo {
+	return &ParalleledPurchaseInfo{
+		KeyGroup:   keyGroup,
+		Sizes:      sizes,
+		Hashes:     hashes,
+		Trackers:   trackers,
+		ResultChan: resultChan,
+	}
 }
 
 type FileInfo struct {
@@ -61,8 +94,9 @@ type FS interface {
 	Set(string, []byte)
 	SetWithInfo(k string, v []byte, info *FileInfo)
 	Get(string) ([]byte, error)
-	Share(*FileShareInfo)
-	Purchase(*FilePurchaseInfo)
+	Share(info *FileShareInfo)
+	Purchase(info *FilePurchaseInfo)
+	ParalleledPurchase(info *ParalleledPurchaseInfo)
 	Start()
 }
 
@@ -152,9 +186,9 @@ func (nfs *NaiveFS) ParalleledPurchase(info *ParalleledPurchaseInfo) {
 }
 
 func (nfs *NaiveFS) Start() {
-	nfs.staticAppliNetHandler.AddListener(SPROC_WAIT, nfs.shareRequestChan)
-	nfs.staticAppliNetHandler.AddListener(PPROC_WAIT, nfs.puchaseRequestChan)
-	nfs.staticAppliNetHandler.AddListener(TPROC_WAIT, nfs.trackerRequestChan)
+	nfs.staticAppliNetHandler.AddListener(common.SPROC_WAIT, nfs.shareRequestChan)
+	nfs.staticAppliNetHandler.AddListener(common.PPROC_WAIT, nfs.puchaseRequestChan)
+	nfs.staticAppliNetHandler.AddListener(common.TPROC_WAIT, nfs.trackerRequestChan)
 	go nfs.run()
 }
 
@@ -224,7 +258,6 @@ func (nfs *NaiveFS) run() {
 					peerInfo.FilesFrom[file] = struct{}{}
 				}
 				nfs.peerInfoDB.Store(result.From, peerInfo)
-				//TODO Maintain Info
 			}
 			fmt.Println("SHARE RECV RESULT", result)
 		case info := <-nfs.purchaseChan:
@@ -270,19 +303,19 @@ func (nfs *NaiveFS) run() {
 					finfo, ok := nfs.fileInfoDB.Load(key)
 					if ok {
 						fileInfo := finfo.(*FileInfo)
-						for peer, _ := range fileInfo.Peers {
+						for peer := range fileInfo.Peers {
 							peerMap[peer] = struct{}{}
 						}
 					}
 				}
 				peers := make([]common.NodeID, 0, len(peerMap))
-				for peer, _ := range peerMap {
+				for peer := range peerMap {
 					peers = append(peers, peer)
 				}
 				res.PeerGroup[i] = peers
 			}
 			fmt.Println("TRACKER INFO", res)
-			nfs.staticAppliNetHandler.SendTo(msg.FromPeerID, msg.FromHandlerID, TPROC_RECEIVER, nfs.encoder.Encode(res))
+			nfs.staticAppliNetHandler.SendTo(msg.FromPeerID, msg.FromHandlerID, common.TPROC_RECEIVER, nfs.encoder.Encode(res))
 		case <-nfs.ctrlChan:
 			return
 		}

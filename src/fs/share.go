@@ -98,7 +98,7 @@ func NewShareSession(fs FS,
 }
 
 func (session *ShareSession) Start() {
-	session.appliHandler.AddListener(SPROC_SENDER, session.acceptMsgChan)
+	session.appliHandler.AddListener(common.SPROC_SENDER, session.acceptMsgChan)
 	dataSize := 0
 	totData := make([]byte, 0)
 	for _, key := range session.shareInfo.Keys {
@@ -111,7 +111,7 @@ func (session *ShareSession) Start() {
 	data := session.encoder.Encode(msg)
 	for i := 0; i < len(session.shareInfo.Peers); i++ {
 		session.peerState[session.shareInfo.Peers[i]] = SHARE_ST
-		session.appliHandler.SendTo(session.shareInfo.Peers[i], net.StaticHandlerID, SPROC_WAIT, data)
+		session.appliHandler.SendTo(session.shareInfo.Peers[i], net.StaticHandlerID, common.SPROC_WAIT, data)
 	}
 	session.sendTimer = time.NewTimer(2 * session.appliHandler.EstimateTimeOut(msg.Size))
 	go session.run()
@@ -151,7 +151,7 @@ func (session *ShareSession) run() {
 					Data: datas,
 				}
 				fmt.Println("PREPARE SEND", session.shareInfo.Keys, dataPack, session.encoder.Encode(&dataPack))
-				session.appliHandler.ReliableSendTo(peerID, msg.FromHandlerID, SPROC_RECEIVER, session.encoder.Encode(&dataPack), id, session.sendResultChan)
+				session.appliHandler.ReliableSendTo(peerID, msg.FromHandlerID, common.SPROC_RECEIVER, session.encoder.Encode(&dataPack), id, session.sendResultChan)
 			} else {
 				//TODO
 			}
@@ -232,14 +232,14 @@ func NewShareRecvSession(
 }
 
 func (session *ShareRecvSession) Start() {
-	session.appliHandler.AddListener(SPROC_RECEIVER, session.dataChan)
+	session.appliHandler.AddListener(common.SPROC_RECEIVER, session.dataChan)
 	msg := &ShareAcceptMsg{
 		ID:   session.id,
 		Hash: session.hash,
 	}
 	data := session.encoder.Encode(msg)
 	fmt.Println("ACC START", session.senderID, session.senderHandlerID)
-	session.appliHandler.SendTo(session.senderID, session.senderHandlerID, SPROC_SENDER, data)
+	session.appliHandler.SendTo(session.senderID, session.senderHandlerID, common.SPROC_SENDER, data)
 	//TODO
 	session.waitTimer = time.NewTimer(session.appliHandler.EstimateTimeOut(session.size))
 	go session.run()
@@ -260,12 +260,11 @@ func (session *ShareRecvSession) run() {
 	for {
 		select {
 		case data := <-session.dataChan:
-			//TODO DataInfo
 			var dataPack DataPack
 			session.encoder.Decode(data.Data, &dataPack)
 			fmt.Println("DATA PACK", dataPack)
 			totData := make([]byte, 0)
-			for i, _ := range dataPack.Keys {
+			for i := range dataPack.Keys {
 				totData = append(totData, dataPack.Data[i]...)
 			}
 			hash := common.GenSHA1(totData)

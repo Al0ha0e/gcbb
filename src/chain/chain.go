@@ -5,6 +5,7 @@ import "github.com/gcbb/src/common"
 type DeployResult struct {
 	Address common.ContractAddress
 	OK      bool
+	Args    []interface{}
 }
 
 type CallResult struct {

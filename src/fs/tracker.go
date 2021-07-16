@@ -82,13 +82,13 @@ func NewParalleledPurchaseSession(fs FS,
 }
 
 func (session *ParalleledPurchaseSession) Start() {
-	session.appliHandler.AddListener(TPROC_RECEIVER, session.trackerResultChan)
+	session.appliHandler.AddListener(common.TPROC_RECEIVER, session.trackerResultChan)
 	request := &TrackerRequestMsg{
 		KeyGroup: session.request.KeyGroup,
 	}
 	msg := session.encoder.Encode(request)
 	for _, peer := range session.request.Trackers {
-		session.appliHandler.SendTo(peer, net.StaticHandlerID, TPROC_WAIT, msg)
+		session.appliHandler.SendTo(peer, net.StaticHandlerID, common.TPROC_WAIT, msg)
 	}
 	var totSize uint32 = 0
 	for _, size := range session.request.Sizes {
@@ -115,13 +115,12 @@ func (session *ParalleledPurchaseSession) updatePeers(peerGroup [][]common.NodeI
 func (session *ParalleledPurchaseSession) purchase(id int, peer common.NodeID) {
 	if session.fileState[id] == TRACKER_UNKOWN {
 		session.fileState[id] = TRACKER_PURCHASING
-		session.fs.Purchase(&FilePurchaseInfo{
-			Keys:       session.request.KeyGroup[id],
-			Size:       session.request.Sizes[id],
-			Peer:       peer,
-			Hash:       session.request.Hashes[id],
-			ResultChan: session.purchaseResultChan,
-		})
+		session.fs.Purchase(NewFilePurchaseInfo(
+			session.request.KeyGroup[id],
+			session.request.Sizes[id],
+			peer,
+			session.request.Hashes[id],
+			session.purchaseResultChan))
 	}
 }
 

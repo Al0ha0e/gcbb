@@ -47,16 +47,16 @@ type SubTaskSession struct {
 	mid             common.NodeID
 	key             [20]byte
 	state           STSessionState
-	trackers        *common.TrackerInfo
+	trackers        []common.NodeID
 	peers           map[common.NodeID]*PeerTaskInfo
 	answers         []map[common.HashVal]uint32
 	validAnswers    []common.HashVal
 	validAnswerCnt  []uint32
 	answerCnt       uint32
 	contractHandler chain.CalcContractHandler
+	encoder         common.Encoder
+	appliNetHandler net.AppliNetHandler
 
-	encoder        common.Encoder
-	handler        net.AppliNetHandler
 	deployChan     chan *chain.DeployResult
 	peerResChan    chan *net.ListenerNetMsg
 	peerAnswerChan chan *chain.CallResult
@@ -82,6 +82,9 @@ func (session *SubTaskSession) deployContract() {
 
 func (session *SubTaskSession) publishTask() {
 	session.state = STASK_RUNNING
+	_, address := session.contractHandler.GetAddress()
+	request := common.NewMasterReqMsg(address, session.taskInfo.Code)
+	session.appliNetHandler.Broadcast(common.CPROC_WAIT, session.encoder.Encode(request))
 }
 
 func (session *SubTaskSession) genConfoundKey(peerID common.NodeID) [20]byte {
@@ -109,8 +112,6 @@ func (session *SubTaskSession) run() {
 					//TODO
 					return
 				}
-			} else {
-				//TODO
 			}
 		case msg := <-session.peerResChan:
 			var resMsg common.WorkerResMsg
@@ -124,8 +125,8 @@ func (session *SubTaskSession) run() {
 					confoundKey := session.genConfoundKey(resMsg.WorkerID)
 					session.peers[resMsg.WorkerID] = NewPeerTaskInfo(confoundKey, STPEER_ACCEPT)
 					sign := session.genSign(resMsg.WorkerID)
-					meta := common.NewTaskMetaMsg(session.mid, session.taskInfo.ID, confoundKey, sign, *session.trackers)
-					session.handler.SendTo(resMsg.WorkerID, msg.FromHandlerID, common.CPROC_META, session.encoder.Encode(&meta))
+					meta := common.NewTaskMetaInfo(session.mid, session.taskInfo.ID, confoundKey, sign, session.trackers)
+					session.appliNetHandler.SendTo(resMsg.WorkerID, msg.FromHandlerID, common.CPROC_META, session.encoder.Encode(&meta))
 					session.peers[resMsg.WorkerID].State = STPEER_RUNNING
 				}
 			} else {

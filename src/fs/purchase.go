@@ -62,13 +62,13 @@ func NewPurchaseSession(
 }
 
 func (session *PurchaseSession) Start() {
-	session.appliHandler.AddListener(PPROC_RECEIVER, session.dataChan)
+	session.appliHandler.AddListener(common.PPROC_RECEIVER, session.dataChan)
 	msg := &PurchaseRequestMsg{
 		ID:   session.id,
 		Keys: session.purchaseInfo.Keys,
 	}
 	data := session.encoder.Encode(msg)
-	session.appliHandler.SendTo(session.purchaseInfo.Peer, net.StaticHandlerID, PPROC_WAIT, data)
+	session.appliHandler.SendTo(session.purchaseInfo.Peer, net.StaticHandlerID, common.PPROC_WAIT, data)
 	session.waitTimer = time.NewTimer(2 * session.appliHandler.EstimateTimeOut(session.purchaseInfo.Size))
 	go session.run()
 }
@@ -172,7 +172,7 @@ func (session *SellSession) Start() {
 		Keys: session.keys,
 		Data: datas,
 	}
-	session.appliHandler.ReliableSendTo(session.receiverID, session.receiverHandlerID, PPROC_RECEIVER, session.encoder.Encode(&dataPack), 0, session.sendResultChan)
+	session.appliHandler.ReliableSendTo(session.receiverID, session.receiverHandlerID, common.PPROC_RECEIVER, session.encoder.Encode(&dataPack), 0, session.sendResultChan)
 	session.sendTimer = time.NewTimer(session.appliHandler.EstimateTimeOut(uint32(dataSize)))
 	go session.run()
 }

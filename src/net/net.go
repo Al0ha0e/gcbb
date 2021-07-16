@@ -38,6 +38,7 @@ type NetHandler interface {
 	AddAppliHandler(handler AppliNetHandler)
 	SendTo(peer common.NodeID, msg *AppliNetMsg)
 	ReliableSendTo(peer common.NodeID, msg *AppliNetMsg, id uint32, resultChan chan *SendResult)
+	Broadcast(msg *AppliNetMsg)
 	Start()
 	Stop()
 }
@@ -138,6 +139,23 @@ func (emulator *NetHandlerEmulator) ReliableSendTo(peer common.NodeID, msg *Appl
 			DstListenerID: msg.DstListenerID,
 		}
 	}()
+}
+
+func (emulator *NetHandlerEmulator) Broadcast(msg *AppliNetMsg) {
+	for peer, c := range EmuChanMap {
+		if peer != emulator.NodeID {
+			go func() {
+				timer := time.NewTimer(200 * time.Millisecond)
+				<-timer.C
+				c <- &NetMsg{
+					SrcId: emulator.NodeID,
+					DstId: peer,
+					Data:  emulator.encoder.Encode(msg),
+				}
+			}()
+
+		}
+	}
 }
 
 func (emulator *NetHandlerEmulator) Start() {

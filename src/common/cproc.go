@@ -1,14 +1,5 @@
 package common
 
-type AppliListenerID uint16
-
-const (
-	//Worker -> Master
-	CPROC_RES AppliListenerID = iota
-	//Master -> Worker
-	CPROC_META AppliListenerID = iota
-)
-
 type MasterReqMsg struct {
 	ContractAddr ContractAddress
 	Code         []byte
@@ -27,24 +18,24 @@ type WorkerResMsg struct {
 	TaskID   TaskID
 }
 
-type TrackerInfo struct {
-}
-
-type TaskMetaMsg struct {
+type TaskMetaInfo struct {
 	MasterID    NodeID
 	TaskID      TaskID
 	ConfoundKey [20]byte
 	Sign        []byte
-	Trackers    TrackerInfo
+	KeyGroup    [][]string
+	Sizes       []uint32
+	Hashes      []HashVal
+	Trackers    []NodeID
 }
 
-func NewTaskMetaMsg(
+func NewTaskMetaInfo(
 	masterID NodeID,
 	taskID TaskID,
 	confoundKey [20]byte,
 	sign []byte,
-	trackers TrackerInfo) *TaskMetaMsg {
-	return &TaskMetaMsg{
+	trackers []NodeID) *TaskMetaInfo {
+	return &TaskMetaInfo{
 		MasterID:    masterID,
 		TaskID:      taskID,
 		ConfoundKey: confoundKey,

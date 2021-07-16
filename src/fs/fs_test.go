@@ -138,16 +138,9 @@ func TestFileParalledPurchase(t *testing.T) {
 	resultChan := make(chan *ShareResult, 1)
 	resultChan2 := make(chan *ShareResult, 1)
 
-	info := &FileShareInfo{
-		Keys:       []string{"a"},
-		Peers:      []common.NodeID{id2},
-		ResultChan: resultChan,
-	}
-	info2 := &FileShareInfo{
-		Keys:       []string{"b"},
-		Peers:      []common.NodeID{id4},
-		ResultChan: resultChan2,
-	}
+	info := NewFileShareInfo([]string{"a"}, DataOrigin{}, []common.NodeID{id2}, resultChan)
+	info2 := NewFileShareInfo([]string{"b"}, DataOrigin{}, []common.NodeID{id4}, resultChan2)
+
 	fs1.Share(info)
 	fs1.Share(info2)
 	result := <-resultChan
@@ -158,13 +151,12 @@ func TestFileParalledPurchase(t *testing.T) {
 	hash2 := common.GenSHA1([]byte{19, 19, 81, 0})
 
 	resultChan3 := make(chan *ParalleledPurchaseResult, 1)
-	pinfo := &ParalleledPurchaseInfo{
-		KeyGroup:   make([][]string, 2),
-		Sizes:      []uint32{10, 10},
-		Hashes:     []common.HashVal{hash1, hash2},
-		Trackers:   []common.NodeID{id1},
-		ResultChan: resultChan3,
-	}
+	pinfo := NewParalleledPurchaseInfo(make([][]string, 2),
+		[]uint32{10, 10},
+		[]common.HashVal{hash1, hash2},
+		[]common.NodeID{id1},
+		resultChan3)
+
 	pinfo.KeyGroup[0] = []string{"a"}
 	pinfo.KeyGroup[1] = []string{"b"}
 	fs3.ParalleledPurchase(pinfo)
