@@ -271,7 +271,7 @@ func (session *ShareRecvSession) run() {
 			hash := common.GenSHA1(totData)
 			if hash == session.hash {
 				for i, key := range dataPack.Keys {
-					session.fs.SetWithInfo(key, dataPack.Data[i], FileInfo{Owner: session.senderID, Peers: make(map[common.NodeID]struct{})})
+					session.fs.SetWithInfo(key, dataPack.Data[i], &FileInfo{Owner: session.senderID, Peers: make(map[common.NodeID]struct{})})
 				}
 				fmt.Println("SHARE RECV OK")
 				session.terminate(true, dataPack.Keys)

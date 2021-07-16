@@ -59,7 +59,7 @@ type PeerInfo struct {
 
 type FS interface {
 	Set(string, []byte)
-	SetWithInfo(k string, v []byte, info FileInfo)
+	SetWithInfo(k string, v []byte, info *FileInfo)
 	Get(string) ([]byte, error)
 	Share(*FileShareInfo)
 	Purchase(*FilePurchaseInfo)
@@ -116,7 +116,7 @@ func NewNaiveFS(handler net.AppliNetHandler, appliNetHandlerFactory net.AppliNet
 	return ret
 }
 
-func (nfs *NaiveFS) SetWithInfo(k string, v []byte, info FileInfo) {
+func (nfs *NaiveFS) SetWithInfo(k string, v []byte, info *FileInfo) {
 	if _, ok := nfs.db.Load(k); ok {
 		return
 	}
@@ -125,7 +125,7 @@ func (nfs *NaiveFS) SetWithInfo(k string, v []byte, info FileInfo) {
 }
 
 func (nfs *NaiveFS) Set(k string, v []byte) {
-	nfs.SetWithInfo(k, v, FileInfo{Owner: nfs.owner, Peers: make(map[common.NodeID]struct{})})
+	nfs.SetWithInfo(k, v, &FileInfo{Owner: nfs.owner, Peers: make(map[common.NodeID]struct{})})
 }
 
 func (nfs *NaiveFS) Get(k string) ([]byte, error) {
@@ -142,6 +142,12 @@ func (nfs *NaiveFS) Share(info *FileShareInfo) {
 func (nfs *NaiveFS) Purchase(info *FilePurchaseInfo) {
 	go func() {
 		nfs.purchaseChan <- info
+	}()
+}
+
+func (nfs *NaiveFS) ParalleledPurchase(info *ParalleledPurchaseInfo) {
+	go func() {
+		nfs.paralleledPurchaseChan <- info
 	}()
 }
 
@@ -181,19 +187,19 @@ func (nfs *NaiveFS) run() {
 			for peer, state := range result.PeerStates {
 				if state == SHARE_FINISHED {
 					pinfo, ok := nfs.peerInfoDB.Load(peer)
-					var peerInfo PeerInfo
+					var peerInfo *PeerInfo
 					if !ok {
-						peerInfo = PeerInfo{
+						peerInfo = &PeerInfo{
 							FilesFrom: make(map[string]struct{}),
 							FilesTo:   make(map[string]struct{}),
 						}
 					} else {
-						peerInfo = pinfo.(PeerInfo)
+						peerInfo = pinfo.(*PeerInfo)
 					}
 
 					for _, file := range result.Keys {
 						finfo, _ := nfs.fileInfoDB.Load(file)
-						fileInfo := finfo.(FileInfo)
+						fileInfo := finfo.(*FileInfo)
 						fileInfo.Peers[peer] = struct{}{}
 						nfs.fileInfoDB.Store(file, fileInfo)
 						peerInfo.FilesTo[file] = struct{}{}
@@ -205,14 +211,14 @@ func (nfs *NaiveFS) run() {
 		case result := <-nfs.shareRecvResultChan:
 			if result.OK {
 				pinfo, ok := nfs.peerInfoDB.Load(result.From)
-				var peerInfo PeerInfo
+				var peerInfo *PeerInfo
 				if !ok {
-					peerInfo = PeerInfo{
+					peerInfo = &PeerInfo{
 						FilesFrom: make(map[string]struct{}),
 						FilesTo:   make(map[string]struct{}),
 					}
 				} else {
-					peerInfo = pinfo.(PeerInfo)
+					peerInfo = pinfo.(*PeerInfo)
 				}
 				for _, file := range result.Keys {
 					peerInfo.FilesFrom[file] = struct{}{}
@@ -254,6 +260,7 @@ func (nfs *NaiveFS) run() {
 		case msg := <-nfs.trackerRequestChan:
 			var req TrackerRequestMsg
 			nfs.encoder.Decode(msg.Data, &req)
+			fmt.Println("TRACKER REQUEST", req)
 			res := &TrackerResultMsg{
 				PeerGroup: make([][]common.NodeID, len(req.KeyGroup)),
 			}
@@ -262,7 +269,7 @@ func (nfs *NaiveFS) run() {
 				for _, key := range keys {
 					finfo, ok := nfs.fileInfoDB.Load(key)
 					if ok {
-						fileInfo := finfo.(FileInfo)
+						fileInfo := finfo.(*FileInfo)
 						for peer, _ := range fileInfo.Peers {
 							peerMap[peer] = struct{}{}
 						}
@@ -274,6 +281,7 @@ func (nfs *NaiveFS) run() {
 				}
 				res.PeerGroup[i] = peers
 			}
+			fmt.Println("TRACKER INFO", res)
 			nfs.staticAppliNetHandler.SendTo(msg.FromPeerID, msg.FromHandlerID, TPROC_RECEIVER, nfs.encoder.Encode(res))
 		case <-nfs.ctrlChan:
 			return

@@ -1,6 +1,7 @@
 package fs
 
 import (
+	"fmt"
 	"time"
 
 	"github.com/gcbb/src/common"
@@ -74,6 +75,7 @@ func NewParalleledPurchaseSession(fs FS,
 		ctrlChan:           make(chan struct{}, 1),
 	}
 	for i := 0; i < l; i++ {
+		ret.peerGroup[i] = make(map[common.NodeID]struct{})
 		ret.fileState[i] = TRACKER_UNKOWN
 	}
 	return ret
@@ -97,6 +99,7 @@ func (session *ParalleledPurchaseSession) Start() {
 }
 
 func (session *ParalleledPurchaseSession) updatePeers(peerGroup [][]common.NodeID) {
+	fmt.Println("UPDATE PEERS", peerGroup)
 	for i, peers := range peerGroup {
 		purchased := false
 		for _, peer := range peers {
