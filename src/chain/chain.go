@@ -3,9 +3,10 @@ package chain
 import "github.com/gcbb/src/common"
 
 type DeployResult struct {
-	Address common.ContractAddress
-	OK      bool
-	Args    []interface{}
+	Address  common.ContractAddress
+	Deployer common.NodeID
+	OK       bool
+	Args     []interface{}
 }
 
 type CallResult struct {
@@ -21,3 +22,18 @@ type ContractHandler interface {
 	Call(method string, args []interface{}, result chan *CallResult)
 	Listen(method string, result chan *CallResult)
 }
+
+// var
+
+// type ContractHandlerSimulator struct {
+// }
+
+// func (*ContractHandlerSimulator) Deploy(args []interface{}, result chan *DeployResult) {
+
+// }
+
+// func (*ContractHandlerSimulator) Validate(address common.ContractAddress, result chan *DeployResult) {
+// }
+// func (*ContractHandlerSimulator) GetAddress() (bool, common.ContractAddress)                      {}
+// func (*ContractHandlerSimulator) Call(method string, args []interface{}, result chan *CallResult) {}
+// func (*ContractHandlerSimulator) Listen(method string, result chan *CallResult)                   {}
