@@ -1,17 +1,19 @@
 package worker
 
 import (
+	"github.com/gcbb/src/chain"
 	"github.com/gcbb/src/common"
 	"github.com/gcbb/src/fs"
 	"github.com/gcbb/src/net"
 )
 
 type Worker struct {
-	id                     common.NodeID
-	fs                     fs.FS
-	staticAppliNetHandler  net.AppliNetHandler
-	appliNetHandlerFactory net.AppliNetHandlerFactory
-	encoder                common.Encoder
+	id                        common.NodeID
+	fs                        fs.FS
+	staticAppliNetHandler     net.AppliNetHandler
+	appliNetHandlerFactory    net.AppliNetHandlerFactory
+	calcContractHandlerFatory chain.CalcContractHandlerFactory
+	encoder                   common.Encoder
 
 	taskRequestChan chan *net.ListenerNetMsg
 	ctrlChan        chan struct{}
@@ -28,13 +30,15 @@ func (worker *Worker) run() {
 		case msg := <-worker.taskRequestChan:
 			var req common.MasterReqMsg
 			worker.encoder.Decode(msg.Data, &req)
-			handler := worker.appliNetHandlerFactory.GetHandler()
+			contractHandler := worker.calcContractHandlerFatory.GetCalcContractHandler()
+			appliHandler := worker.appliNetHandlerFactory.GetHandler()
 			session := NewWorkerSession(
 				worker.id,
 				worker.fs,
 				req.Code,
 				msg.FromHandlerID,
-				handler,
+				contractHandler,
+				appliHandler,
 				worker.encoder)
 			session.Start()
 		case <-worker.ctrlChan:

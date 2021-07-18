@@ -47,7 +47,6 @@ type SubTaskSession struct {
 	mid             common.NodeID
 	key             [20]byte
 	state           STSessionState
-	trackers        []common.NodeID
 	peers           map[common.NodeID]*PeerTaskInfo
 	answers         []map[common.HashVal]uint32
 	validAnswers    []common.HashVal
@@ -64,8 +63,36 @@ type SubTaskSession struct {
 	ctrlChan       chan struct{}
 }
 
-func NewSubTaskSession() *SubTaskSession {
-	return nil
+func NewSubTaskSession(taskInfo *SubTask,
+	mid common.NodeID,
+	contractHandler chain.CalcContractHandler,
+	encoder common.Encoder,
+	appliNetHandler net.AppliNetHandler) *SubTaskSession {
+	//TODO GenKey
+	unitTaskCnt := len(taskInfo.UnitTasks)
+	ret := &SubTaskSession{
+		taskInfo: taskInfo,
+		mid:      mid,
+		//key: ,
+		state:           STASK_UN,
+		peers:           make(map[common.NodeID]*PeerTaskInfo),
+		answers:         make([]map[common.HashVal]uint32, unitTaskCnt),
+		validAnswers:    make([]common.HashVal, unitTaskCnt),
+		validAnswerCnt:  make([]uint32, unitTaskCnt),
+		answerCnt:       0,
+		contractHandler: contractHandler,
+		encoder:         encoder,
+		appliNetHandler: appliNetHandler,
+		deployChan:      make(chan *chain.DeployResult, 1),
+		peerResChan:     make(chan *net.ListenerNetMsg, 10),
+		peerAnswerChan:  make(chan *chain.CallResult, 10),
+		terminateChan:   make(chan *chain.CallResult, 1),
+		ctrlChan:        make(chan struct{}, 1),
+	}
+	for i := 0; i < unitTaskCnt; i++ {
+		ret.answers[i] = make(map[common.HashVal]uint32)
+	}
+	return ret
 }
 
 func (session *SubTaskSession) Start() {
@@ -74,9 +101,7 @@ func (session *SubTaskSession) Start() {
 }
 
 func (session *SubTaskSession) deployContract() {
-	//TODO
-	args := make([]interface{}, 0)
-	session.contractHandler.Deploy(args, session.deployChan)
+	session.contractHandler.Deploy(session.taskInfo.ID, session.deployChan)
 	session.state = STASK_DEPLOYING
 }
 
@@ -106,7 +131,7 @@ func (session *SubTaskSession) run() {
 		case result := <-session.deployChan:
 			if session.state == STASK_DEPLOYING {
 				if result.OK {
-					//session.contractHandler.ListenSubmit(session.)
+					session.contractHandler.ListenSubmit(session.peerAnswerChan)
 					session.publishTask()
 				} else {
 					//TODO
@@ -125,7 +150,7 @@ func (session *SubTaskSession) run() {
 					confoundKey := session.genConfoundKey(resMsg.WorkerID)
 					session.peers[resMsg.WorkerID] = NewPeerTaskInfo(confoundKey, STPEER_ACCEPT)
 					sign := session.genSign(resMsg.WorkerID)
-					meta := common.NewTaskMetaInfo(session.mid, session.taskInfo.ID, confoundKey, sign, session.trackers)
+					meta := common.NewTaskMetaInfo(session.mid, session.taskInfo.ID, confoundKey, sign, session.taskInfo.FileInfo)
 					session.appliNetHandler.SendTo(resMsg.WorkerID, msg.FromHandlerID, common.CPROC_META, session.encoder.Encode(&meta))
 					session.peers[resMsg.WorkerID].State = STPEER_RUNNING
 				}

@@ -9,13 +9,14 @@ import (
 type CalcContractDeployResult struct{}
 
 type CalcContractHandler interface {
-	Deploy(args []interface{}, result chan *DeployResult)
-	Validate(result chan *CalcContractDeployResult)
+	Deploy(taskID common.TaskID, resultChan chan *DeployResult)
+	Validate(resultChan chan *DeployResult)
 	GetAddress() (bool, common.ContractAddress)
-	Submit(sign []byte, ansHash []common.HashVal, result chan *CallResult)
-	Terminate(key [20]byte, result chan *CallResult)
-	ListenSubmit(result chan *CallResult)
-	ListenPunish(result chan *CallResult)
+	Submit(sign []byte, ansHash []common.HashVal, resultChan chan *CallResult)
+	Terminate(key [20]byte, resultChan chan *CallResult)
+	ListenSubmit(resultChan chan *CallResult)
+	ListenPunish(resultChan chan *CallResult)
+	// ListenTerminate(resultChan chan *CallResult)
 }
 
 type NaiveCalcContractHandler struct {
@@ -23,37 +24,48 @@ type NaiveCalcContractHandler struct {
 	id      common.NodeID
 }
 
+func NewNaiveCalcContractHandler(id common.NodeID) *NaiveCalcContractHandler {
+	return &NaiveCalcContractHandler{
+		id: id,
+	}
+}
+
 var addressNum int
 
 type CalcContractSimulator struct {
-	DeployInfo *DeployResult
-	Listeners  map[common.NodeID]chan *CallResult
+	DeployInfo      *DeployResult
+	SubmitListeners map[common.NodeID]chan *CallResult
 }
 
-func NewCalcContractSimulator() *CalcContractSimulator {
-	return &CalcContractSimulator{}
+func NewCalcContractSimulator(deployInfo *DeployResult) *CalcContractSimulator {
+	return &CalcContractSimulator{
+		DeployInfo:      deployInfo,
+		SubmitListeners: make(map[common.NodeID]chan *CallResult),
+	}
+}
+
+func ResolveDeployArgs(args []interface{}) common.TaskID {
+	return args[0].(common.TaskID)
 }
 
 var calcContracts map[common.ContractAddress]*CalcContractSimulator
 
-func (handler *NaiveCalcContractHandler) Deploy(args []interface{}, result chan *DeployResult) {
-	resultInfo := &DeployResult{
-		OK: true,
-	}
+func (handler *NaiveCalcContractHandler) Deploy(taskID common.TaskID, resultChan chan *DeployResult) {
 	addressNum += 1
 	s := strconv.Itoa(addressNum)
 	bts := []byte(s)
 	copy(handler.address[:], bts)
+	resultInfo := NewDeployResult(handler.address, handler.id, true, []interface{}{taskID})
 	if calcContracts == nil {
 		calcContracts = make(map[common.ContractAddress]*CalcContractSimulator)
 	}
-	calcContracts[handler.address] = NewCalcContractSimulator()
+	calcContracts[handler.address] = NewCalcContractSimulator(resultInfo)
 	go func() {
-		result <- resultInfo
+		resultChan <- resultInfo
 	}()
 }
 
-func (handler *NaiveCalcContractHandler) Validate(result chan *DeployResult) {
+func (handler *NaiveCalcContractHandler) Validate(resultChan chan *DeployResult) {
 	simu, ok := calcContracts[handler.address]
 	var resultInfo *DeployResult
 	if ok {
@@ -64,25 +76,48 @@ func (handler *NaiveCalcContractHandler) Validate(result chan *DeployResult) {
 		}
 	}
 	go func() {
-		result <- resultInfo
+		resultChan <- resultInfo
 	}()
 }
 
 func (handler *NaiveCalcContractHandler) GetAddress() (bool, common.ContractAddress) {
 	return true, handler.address
 }
-func (handler *NaiveCalcContractHandler) Submit(sign []byte, ansHash []common.HashVal, result chan *CallResult) {
+func (handler *NaiveCalcContractHandler) Submit(sign []byte, ansHash []common.HashVal, resultChan chan *CallResult) {
+	callResult := NewCallResult(true, handler.id, []interface{}{sign, ansHash})
 	go func() {
-		for _, listener := range calcContracts[handler.address].Listeners {
-			listener <- &CallResult{}
+		for _, listener := range calcContracts[handler.address].SubmitListeners {
+			listener <- callResult
 		}
+		resultChan <- callResult
 	}()
 }
-func (handler *NaiveCalcContractHandler) Terminate(key [20]byte, result chan *CallResult) {
+func (handler *NaiveCalcContractHandler) Terminate(key [20]byte, resultChan chan *CallResult) {
+	callResult := NewCallResult(true, handler.id, []interface{}{key})
+	go func() {
+		resultChan <- callResult
+	}()
 }
-func (handler *NaiveCalcContractHandler) ListenSubmit(result chan *CallResult) {
-	calcContracts[handler.address].Listeners[handler.id] = result
-}
-func (handler *NaiveCalcContractHandler) ListenPunish(result chan *CallResult) {
 
+func (handler *NaiveCalcContractHandler) ListenSubmit(resultChan chan *CallResult) {
+	calcContracts[handler.address].SubmitListeners[handler.id] = resultChan
+}
+
+func (handler *NaiveCalcContractHandler) ListenPunish(resultChan chan *CallResult) {
+}
+
+type CalcContractHandlerFactory interface {
+	GetCalcContractHandler() CalcContractHandler
+}
+
+type NaiveCalcContractHandlerFactory struct {
+	id common.NodeID
+}
+
+func NewNaiveCalcContractHandlerFactory(id common.NodeID) *NaiveCalcContractHandlerFactory {
+	return &NaiveCalcContractHandlerFactory{id: id}
+}
+
+func (factory *NaiveCalcContractHandlerFactory) GetCalcContractHandler() CalcContractHandler {
+	return NewNaiveCalcContractHandler(factory.id)
 }

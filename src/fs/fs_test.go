@@ -151,14 +151,14 @@ func TestFileParalledPurchase(t *testing.T) {
 	hash2 := common.GenSHA1([]byte{19, 19, 81, 0})
 
 	resultChan3 := make(chan *ParalleledPurchaseResult, 1)
-	pinfo := NewParalleledPurchaseInfo(make([][]string, 2),
+	pinfo := NewParalleledPurchaseInfo(*common.NewTaskFileMetaInfo(make([][]string, 2),
 		[]uint32{10, 10},
 		[]common.HashVal{hash1, hash2},
-		[]common.NodeID{id1},
+		[]common.NodeID{id1}),
 		resultChan3)
 
-	pinfo.KeyGroup[0] = []string{"a"}
-	pinfo.KeyGroup[1] = []string{"b"}
+	pinfo.FileInfo.KeyGroup[0] = []string{"a"}
+	pinfo.FileInfo.KeyGroup[1] = []string{"b"}
 	fs3.ParalleledPurchase(pinfo)
 
 	result2 := <-resultChan3

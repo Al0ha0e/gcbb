@@ -13,6 +13,7 @@ type SubTask struct {
 	PreTasks  []uint32
 	PostTasks []uint32
 	InDeg     uint32
+	FileInfo  *common.TaskFileMetaInfo
 }
 
 func NewSubTask() *SubTask {

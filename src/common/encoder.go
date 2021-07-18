@@ -22,6 +22,8 @@ func encodeTypes(buf io.Writer, tp reflect.Type, val reflect.Value, tag string) 
 		val = val.Elem()
 	}
 	switch kind {
+	case reflect.Chan:
+		return
 	case reflect.Bool:
 		binary.Write(buf, binary.BigEndian, val.Bool())
 	case reflect.Int:
@@ -79,14 +81,8 @@ func decodeTypes(buf io.Reader, tp reflect.Type, val reflect.Value, tag string) 
 	case reflect.Ptr:
 		val = val.Elem()
 		decodeTypes(buf, tp.Elem(), val, "")
-		// fmt.Println("SB", tp.Elem())
-		// nval := reflect.New(tp.Elem())
-		// decodeTypes(buf, tp.Elem(), nval.Elem(), "")
-		// if val.CanSet() {
-		// 	val.Set(nval)
-		// }
-		// fmt.Println("ELEM", nval.Kind(), val.Kind(), val.CanSet())
-		// fmt.Println("???")
+	case reflect.Chan:
+		return
 	case reflect.Bool:
 		var v bool
 		binary.Read(buf, binary.BigEndian, &v)

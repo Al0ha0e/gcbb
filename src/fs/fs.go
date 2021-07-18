@@ -59,23 +59,14 @@ func NewFilePurchaseInfo(keys []string,
 }
 
 type ParalleledPurchaseInfo struct {
-	KeyGroup   [][]string
-	Sizes      []uint32
-	Hashes     []common.HashVal
-	Trackers   []common.NodeID
+	FileInfo   common.TaskFileMetaInfo
 	ResultChan chan *ParalleledPurchaseResult
 }
 
-func NewParalleledPurchaseInfo(keyGroup [][]string,
-	sizes []uint32,
-	hashes []common.HashVal,
-	trackers []common.NodeID,
+func NewParalleledPurchaseInfo(fileInfo common.TaskFileMetaInfo,
 	resultChan chan *ParalleledPurchaseResult) *ParalleledPurchaseInfo {
 	return &ParalleledPurchaseInfo{
-		KeyGroup:   keyGroup,
-		Sizes:      sizes,
-		Hashes:     hashes,
-		Trackers:   trackers,
+		FileInfo:   fileInfo,
 		ResultChan: resultChan,
 	}
 }

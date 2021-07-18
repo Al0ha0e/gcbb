@@ -18,15 +18,31 @@ type WorkerResMsg struct {
 	TaskID   TaskID
 }
 
+type TaskFileMetaInfo struct {
+	KeyGroup [][]string
+	Sizes    []uint32
+	Hashes   []HashVal
+	Trackers []NodeID
+}
+
+func NewTaskFileMetaInfo(keyGroup [][]string,
+	sizes []uint32,
+	hashes []HashVal,
+	trackers []NodeID) *TaskFileMetaInfo {
+	return &TaskFileMetaInfo{
+		KeyGroup: keyGroup,
+		Sizes:    sizes,
+		Hashes:   hashes,
+		Trackers: trackers,
+	}
+}
+
 type TaskMetaInfo struct {
 	MasterID    NodeID
 	TaskID      TaskID
 	ConfoundKey [20]byte
 	Sign        []byte
-	KeyGroup    [][]string
-	Sizes       []uint32
-	Hashes      []HashVal
-	Trackers    []NodeID
+	FileInfo    TaskFileMetaInfo
 }
 
 func NewTaskMetaInfo(
@@ -34,12 +50,12 @@ func NewTaskMetaInfo(
 	taskID TaskID,
 	confoundKey [20]byte,
 	sign []byte,
-	trackers []NodeID) *TaskMetaInfo {
+	fileInfo *TaskFileMetaInfo) *TaskMetaInfo {
 	return &TaskMetaInfo{
 		MasterID:    masterID,
 		TaskID:      taskID,
 		ConfoundKey: confoundKey,
 		Sign:        sign,
-		Trackers:    trackers,
+		FileInfo:    *fileInfo,
 	}
 }

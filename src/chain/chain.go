@@ -9,10 +9,32 @@ type DeployResult struct {
 	Args     []interface{}
 }
 
+func NewDeployResult(address common.ContractAddress,
+	deployer common.NodeID,
+	ok bool,
+	args []interface{}) *DeployResult {
+	return &DeployResult{
+		Address:  address,
+		Deployer: deployer,
+		OK:       ok,
+		Args:     args,
+	}
+}
+
 type CallResult struct {
 	OK     bool
 	Caller common.NodeID
 	Args   []interface{}
+}
+
+func NewCallResult(ok bool,
+	caller common.NodeID,
+	args []interface{}) *CallResult {
+	return &CallResult{
+		OK:     ok,
+		Caller: caller,
+		Args:   args,
+	}
 }
 
 type ContractHandler interface {

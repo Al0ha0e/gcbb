@@ -59,7 +59,7 @@ func NewParalleledPurchaseSession(fs FS,
 	appliHandler net.AppliNetHandler,
 	encoder common.Encoder,
 	resultChan chan *ParalleledPurchaseResult) *ParalleledPurchaseSession {
-	l := len(request.KeyGroup)
+	l := len(request.FileInfo.KeyGroup)
 	ret := &ParalleledPurchaseSession{
 		fs:                 fs,
 		id:                 id,
@@ -69,7 +69,7 @@ func NewParalleledPurchaseSession(fs FS,
 		unpurchasedCnt:     uint32(l),
 		appliHandler:       appliHandler,
 		encoder:            encoder,
-		trackerResultChan:  make(chan *net.ListenerNetMsg, len(request.Trackers)),
+		trackerResultChan:  make(chan *net.ListenerNetMsg, len(request.FileInfo.Trackers)),
 		purchaseResultChan: make(chan *PurchaseResult, l),
 		resultChan:         resultChan,
 		ctrlChan:           make(chan struct{}, 1),
@@ -84,14 +84,14 @@ func NewParalleledPurchaseSession(fs FS,
 func (session *ParalleledPurchaseSession) Start() {
 	session.appliHandler.AddListener(common.TPROC_RECEIVER, session.trackerResultChan)
 	request := &TrackerRequestMsg{
-		KeyGroup: session.request.KeyGroup,
+		KeyGroup: session.request.FileInfo.KeyGroup,
 	}
 	msg := session.encoder.Encode(request)
-	for _, peer := range session.request.Trackers {
+	for _, peer := range session.request.FileInfo.Trackers {
 		session.appliHandler.SendTo(peer, net.StaticHandlerID, common.TPROC_WAIT, msg)
 	}
 	var totSize uint32 = 0
-	for _, size := range session.request.Sizes {
+	for _, size := range session.request.FileInfo.Sizes {
 		totSize += size
 	}
 	session.waitTimer = time.NewTimer(3 * session.appliHandler.EstimateTimeOut(totSize))
@@ -116,10 +116,10 @@ func (session *ParalleledPurchaseSession) purchase(id int, peer common.NodeID) {
 	if session.fileState[id] == TRACKER_UNKOWN {
 		session.fileState[id] = TRACKER_PURCHASING
 		session.fs.Purchase(NewFilePurchaseInfo(
-			session.request.KeyGroup[id],
-			session.request.Sizes[id],
+			session.request.FileInfo.KeyGroup[id],
+			session.request.FileInfo.Sizes[id],
 			peer,
-			session.request.Hashes[id],
+			session.request.FileInfo.Hashes[id],
 			session.purchaseResultChan))
 	}
 }
@@ -137,12 +137,12 @@ func (session *ParalleledPurchaseSession) run() {
 		case msg := <-session.trackerResultChan:
 			var result TrackerResultMsg
 			session.encoder.Decode(msg.Data, &result)
-			if len(result.PeerGroup) == len(session.request.KeyGroup) {
+			if len(result.PeerGroup) == len(session.request.FileInfo.KeyGroup) {
 				session.updatePeers(result.PeerGroup)
 			}
 		case result := <-session.purchaseResultChan:
-			for i := 0; i < len(session.request.KeyGroup); i++ {
-				if result.Keys[0] == session.request.KeyGroup[i][0] {
+			for i := 0; i < len(session.request.FileInfo.KeyGroup); i++ {
+				if result.Keys[0] == session.request.FileInfo.KeyGroup[i][0] {
 					delete(session.peerGroup[i], result.Peer)
 					if result.OK {
 						session.fileState[i] = TRACKER_PURCHASED

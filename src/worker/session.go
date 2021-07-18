@@ -43,17 +43,17 @@ func NewWorkerSession(
 	fileSystem fs.FS,
 	code []byte,
 	masterHandlerID uint16,
-	// contractHandler chain.CalcContractHandler,
+	contractHandler chain.CalcContractHandler,
 	appliNetHandler net.AppliNetHandler,
 	encoder common.Encoder) *WorkerSession {
 	ret := &WorkerSession{
-		workerID:        workerID,
-		fs:              fileSystem,
-		state:           WS_INITED,
-		code:            code,
-		masterHandlerID: masterHandlerID,
-		metaInfo:        &common.TaskMetaInfo{},
-		// contractHandler:    contractHandler,
+		workerID:           workerID,
+		fs:                 fileSystem,
+		state:              WS_INITED,
+		code:               code,
+		masterHandlerID:    masterHandlerID,
+		metaInfo:           &common.TaskMetaInfo{},
+		contractHandler:    contractHandler,
 		appliNetHandler:    appliNetHandler,
 		encoder:            encoder,
 		validateChan:       make(chan *chain.DeployResult, 1),
@@ -79,19 +79,15 @@ func (session *WorkerSession) run() {
 	for {
 		select {
 		case result := <-session.validateChan:
-			if session.state == WS_PREPARING {
-				if result.OK {
-					session.state = WS_STARTED
-					//TODO Check Other
-					msg := &common.WorkerResMsg{
-						WorkerID: session.workerID,
-						MasterID: session.metaInfo.MasterID,
-						TaskID:   session.metaInfo.TaskID,
-					}
-					session.appliNetHandler.SendTo(session.metaInfo.MasterID, session.masterHandlerID, common.CPROC_RES, session.encoder.Encode(msg))
-				} else {
-					//TODO
+			if session.state == WS_PREPARING && result.OK && session.metaInfo.MasterID == result.Deployer {
+				session.state = WS_STARTED
+				session.metaInfo.TaskID = chain.ResolveDeployArgs(result.Args)
+				msg := &common.WorkerResMsg{
+					WorkerID: session.workerID,
+					MasterID: session.metaInfo.MasterID,
+					TaskID:   session.metaInfo.TaskID,
 				}
+				session.appliNetHandler.SendTo(session.metaInfo.MasterID, session.masterHandlerID, common.CPROC_RES, session.encoder.Encode(msg))
 			} else {
 				//TODO
 			}
@@ -105,12 +101,8 @@ func (session *WorkerSession) run() {
 					session.checkSign(meta.Sign) {
 					session.metaInfo = &meta
 					session.state = WS_FETCHING
-					//TODO Fetch Data
 					info := fs.NewParalleledPurchaseInfo(
-						meta.KeyGroup,
-						meta.Sizes,
-						meta.Hashes,
-						meta.Trackers,
+						meta.FileInfo,
 						session.purchaseResultChan,
 					)
 					session.fs.ParalleledPurchase(info)
