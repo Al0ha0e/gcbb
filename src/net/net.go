@@ -142,9 +142,10 @@ func (emulator *NetHandlerEmulator) ReliableSendTo(peer common.NodeID, msg *Appl
 }
 
 func (emulator *NetHandlerEmulator) Broadcast(msg *AppliNetMsg) {
-	for peer, c := range EmuChanMap {
-		if peer != emulator.NodeID {
-			go func() {
+	go func() {
+		for peer, c := range EmuChanMap {
+			fmt.Println("BC", peer)
+			if peer != emulator.NodeID {
 				timer := time.NewTimer(200 * time.Millisecond)
 				<-timer.C
 				c <- &NetMsg{
@@ -152,10 +153,10 @@ func (emulator *NetHandlerEmulator) Broadcast(msg *AppliNetMsg) {
 					DstId: peer,
 					Data:  emulator.encoder.Encode(msg),
 				}
-			}()
 
+			}
 		}
-	}
+	}()
 }
 
 func (emulator *NetHandlerEmulator) Start() {

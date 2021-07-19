@@ -10,7 +10,7 @@ type CalcContractDeployResult struct{}
 
 type CalcContractHandler interface {
 	Deploy(taskID common.TaskID, resultChan chan *DeployResult)
-	Validate(resultChan chan *DeployResult)
+	Validate(address common.ContractAddress, resultChan chan *DeployResult)
 	GetAddress() (bool, common.ContractAddress)
 	Submit(sign []byte, ansHash []common.HashVal, resultChan chan *CallResult)
 	Terminate(key [20]byte, resultChan chan *CallResult)
@@ -65,8 +65,9 @@ func (handler *NaiveCalcContractHandler) Deploy(taskID common.TaskID, resultChan
 	}()
 }
 
-func (handler *NaiveCalcContractHandler) Validate(resultChan chan *DeployResult) {
-	simu, ok := calcContracts[handler.address]
+func (handler *NaiveCalcContractHandler) Validate(address common.ContractAddress, resultChan chan *DeployResult) {
+	handler.address = address
+	simu, ok := calcContracts[address]
 	var resultInfo *DeployResult
 	if ok {
 		resultInfo = simu.DeployInfo

@@ -1,12 +1,14 @@
 package common
 
 type MasterReqMsg struct {
+	MasterID     NodeID
 	ContractAddr ContractAddress
 	Code         []byte
 }
 
-func NewMasterReqMsg(addr ContractAddress, code []byte) *MasterReqMsg {
+func NewMasterReqMsg(id NodeID, addr ContractAddress, code []byte) *MasterReqMsg {
 	return &MasterReqMsg{
+		MasterID:     id,
 		ContractAddr: addr,
 		Code:         code,
 	}

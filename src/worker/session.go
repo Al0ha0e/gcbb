@@ -1,6 +1,8 @@
 package worker
 
 import (
+	"fmt"
+
 	"github.com/gcbb/src/chain"
 	"github.com/gcbb/src/common"
 	"github.com/gcbb/src/fs"
@@ -22,6 +24,7 @@ const (
 
 type WorkerSession struct {
 	workerID        common.NodeID
+	contractAddress common.ContractAddress
 	fs              fs.FS
 	state           WorkerSessionState
 	code            []byte
@@ -40,6 +43,8 @@ type WorkerSession struct {
 
 func NewWorkerSession(
 	workerID common.NodeID,
+	masterID common.NodeID,
+	contractAddress common.ContractAddress,
 	fileSystem fs.FS,
 	code []byte,
 	masterHandlerID uint16,
@@ -48,6 +53,7 @@ func NewWorkerSession(
 	encoder common.Encoder) *WorkerSession {
 	ret := &WorkerSession{
 		workerID:           workerID,
+		contractAddress:    contractAddress,
 		fs:                 fileSystem,
 		state:              WS_INITED,
 		code:               code,
@@ -61,11 +67,13 @@ func NewWorkerSession(
 		purchaseResultChan: make(chan *fs.ParalleledPurchaseResult, 1),
 		ctrlChan:           make(chan struct{}, 1),
 	}
+	ret.metaInfo.MasterID = masterID
 	return ret
 }
 
 func (session *WorkerSession) Start() {
-	session.contractHandler.Validate(session.validateChan)
+	fmt.Println("WORKER START")
+	session.contractHandler.Validate(session.contractAddress, session.validateChan)
 	session.state = WS_PREPARING
 	session.appliNetHandler.AddListener(common.CPROC_META, session.metaChan)
 	go session.run()
@@ -79,6 +87,7 @@ func (session *WorkerSession) run() {
 	for {
 		select {
 		case result := <-session.validateChan:
+			fmt.Println("VALIDATE RESULT", result)
 			if session.state == WS_PREPARING && result.OK && session.metaInfo.MasterID == result.Deployer {
 				session.state = WS_STARTED
 				session.metaInfo.TaskID = chain.ResolveDeployArgs(result.Args)
@@ -95,7 +104,7 @@ func (session *WorkerSession) run() {
 			if session.state == WS_STARTED {
 				var meta common.TaskMetaInfo
 				session.encoder.Decode(msg.Data, &meta)
-
+				fmt.Println("META!", meta)
 				if meta.MasterID == session.metaInfo.MasterID &&
 					meta.TaskID == session.metaInfo.TaskID &&
 					session.checkSign(meta.Sign) {
@@ -113,6 +122,11 @@ func (session *WorkerSession) run() {
 		case <-session.purchaseResultChan:
 			if session.state == WS_FETCHING {
 				session.state = WS_RUNNING
+				fmt.Println("PURCHASE OVER!")
+				for _, k := range session.metaInfo.FileInfo.KeyGroup[0] {
+					v, _ := session.fs.Get(k)
+					fmt.Println(k, v)
+				}
 				//TODO RUN
 			} else { //TODO
 			}

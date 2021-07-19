@@ -1,6 +1,8 @@
 package master
 
 import (
+	"fmt"
+
 	"github.com/gcbb/src/chain"
 	"github.com/gcbb/src/common"
 	"github.com/gcbb/src/net"
@@ -97,6 +99,7 @@ func NewSubTaskSession(taskInfo *SubTask,
 
 func (session *SubTaskSession) Start() {
 	session.deployContract()
+	session.appliNetHandler.AddListener(common.CPROC_RES, session.peerResChan)
 	go session.run()
 }
 
@@ -108,7 +111,7 @@ func (session *SubTaskSession) deployContract() {
 func (session *SubTaskSession) publishTask() {
 	session.state = STASK_RUNNING
 	_, address := session.contractHandler.GetAddress()
-	request := common.NewMasterReqMsg(address, session.taskInfo.Code)
+	request := common.NewMasterReqMsg(session.mid, address, session.taskInfo.Code)
 	session.appliNetHandler.Broadcast(common.CPROC_WAIT, session.encoder.Encode(request))
 }
 
@@ -131,6 +134,7 @@ func (session *SubTaskSession) run() {
 		case result := <-session.deployChan:
 			if session.state == STASK_DEPLOYING {
 				if result.OK {
+					fmt.Println("DEPLOY OK")
 					session.contractHandler.ListenSubmit(session.peerAnswerChan)
 					session.publishTask()
 				} else {

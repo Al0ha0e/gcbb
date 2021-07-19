@@ -205,10 +205,6 @@ func (nfs *NaiveFS) run() {
 			session := NewShareRecvSession(nfs, req.ID, req.Hash, req.Size, msg.FromPeerID, msg.FromHandlerID, handler, nfs.encoder, nfs.shareRecvResultChan)
 			session.Start()
 		case result := <-nfs.shareResultChan:
-			go func() {
-				nfs.userShareResultChans[result.ID] <- result
-				delete(nfs.userShareResultChans, result.ID)
-			}()
 			for peer, state := range result.PeerStates {
 				if state == SHARE_FINISHED {
 					pinfo, ok := nfs.peerInfoDB.Load(peer)
@@ -232,6 +228,10 @@ func (nfs *NaiveFS) run() {
 					nfs.peerInfoDB.Store(peer, peerInfo)
 				}
 			}
+			go func() {
+				nfs.userShareResultChans[result.ID] <- result
+				delete(nfs.userShareResultChans, result.ID)
+			}()
 			fmt.Println("SHARE RESULT", result)
 		case result := <-nfs.shareRecvResultChan:
 			if result.OK {
