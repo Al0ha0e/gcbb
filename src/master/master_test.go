@@ -45,7 +45,7 @@ func TestMasterSession(t *testing.T) {
 	<-resultChan
 	fmt.Println("OHHHHHHHHHHHHHHH")
 
-	worker := worker.NewWorker(id3, fs3, hdl3, fac3, chain.NewNaiveCalcContractHandlerFactory(id3), encoder)
+	worker := worker.NewWorker(id3, fs3, hdl3, fac3, chain.NewNaiveCalcContractHandlerFactory(id3), worker.NewNaiveExecuterFactory(), encoder)
 	worker.Start()
 
 	keys := []string{"a", "b"}
@@ -63,13 +63,18 @@ func TestMasterSession(t *testing.T) {
 		[]common.NodeID{id1})
 	meta.KeyGroup[0] = []string{"a", "b"}
 
+	exInfo := common.NewTaskExecuteInfo(make([][]string, 1), make([]string, 1))
+	exInfo.InputKeys[0] = []string{"a", "b"}
+	exInfo.OutputKeys[0] = "c"
 	taskInfo := NewSubTask(common.TaskID{11, 4, 51, 4},
 		[]byte{19, 19, 81, 0},
-		[]*UnitTask{NewUnitTask()},
 		[]uint32{},
 		[]uint32{},
 		0,
-		meta)
+		1,
+		2,
+		meta,
+		exInfo)
 	master := NewSubTaskSession(taskInfo, id1, chain.NewNaiveCalcContractHandler(id1), encoder, hdl1)
 	master.Start()
 

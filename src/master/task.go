@@ -2,39 +2,46 @@ package master
 
 import "github.com/gcbb/src/common"
 
-type UnitTask struct {
-	DataUrl string
-}
+// type UnitTask struct {
+// 	InputKey  []string
+// 	OutputKey string
+// }
 
-func NewUnitTask() *UnitTask {
-	return &UnitTask{}
-}
+// func NewUnitTask() *UnitTask {
+// 	return &UnitTask{}
+// }
 
 type SubTask struct {
-	ID        common.TaskID
-	Code      []byte
-	UnitTasks []*UnitTask
-	PreTasks  []uint32
-	PostTasks []uint32
-	InDeg     uint32
-	FileInfo  *common.TaskFileMetaInfo
+	ID           common.TaskID
+	Code         []byte
+	PreTasks     []uint32
+	PostTasks    []uint32
+	InDeg        uint32
+	UnitTaskCnt  uint32
+	MinAnswerCnt uint32
+	FileInfo     *common.TaskFileMetaInfo
+	ExecuteInfo  *common.TaskExecuteInfo
 }
 
 func NewSubTask(id common.TaskID,
 	code []byte,
-	unitTasks []*UnitTask,
 	preTasks []uint32,
 	postTasks []uint32,
 	inDeg uint32,
-	fileInfo *common.TaskFileMetaInfo) *SubTask {
+	unitTaskCnt uint32,
+	minAnswerCnt uint32,
+	fileInfo *common.TaskFileMetaInfo,
+	executeInfo *common.TaskExecuteInfo) *SubTask {
 	return &SubTask{
-		ID:        id,
-		Code:      code,
-		UnitTasks: unitTasks,
-		PreTasks:  preTasks,
-		PostTasks: postTasks,
-		InDeg:     inDeg,
-		FileInfo:  fileInfo,
+		ID:           id,
+		Code:         code,
+		PreTasks:     preTasks,
+		PostTasks:    postTasks,
+		InDeg:        inDeg,
+		UnitTaskCnt:  unitTaskCnt,
+		MinAnswerCnt: minAnswerCnt,
+		FileInfo:     fileInfo,
+		ExecuteInfo:  executeInfo,
 	}
 }
 

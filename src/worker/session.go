@@ -32,11 +32,14 @@ type WorkerSession struct {
 	metaInfo        *common.TaskMetaInfo
 	contractHandler chain.CalcContractHandler
 	appliNetHandler net.AppliNetHandler
+	executer        Executer
 	encoder         common.Encoder
 
 	validateChan       chan *chain.DeployResult
 	metaChan           chan *net.ListenerNetMsg
 	purchaseResultChan chan *fs.ParalleledPurchaseResult
+	executeResultChan  chan *ExecuteResult
+	submitResultChan   chan *chain.CallResult
 	ctrlChan           chan struct{}
 	//resultChan         chan []common.HashVal
 }
@@ -50,6 +53,7 @@ func NewWorkerSession(
 	masterHandlerID uint16,
 	contractHandler chain.CalcContractHandler,
 	appliNetHandler net.AppliNetHandler,
+	executer Executer,
 	encoder common.Encoder) *WorkerSession {
 	ret := &WorkerSession{
 		workerID:           workerID,
@@ -61,10 +65,13 @@ func NewWorkerSession(
 		metaInfo:           &common.TaskMetaInfo{},
 		contractHandler:    contractHandler,
 		appliNetHandler:    appliNetHandler,
+		executer:           executer,
 		encoder:            encoder,
 		validateChan:       make(chan *chain.DeployResult, 1),
 		metaChan:           make(chan *net.ListenerNetMsg, 1),
 		purchaseResultChan: make(chan *fs.ParalleledPurchaseResult, 1),
+		executeResultChan:  make(chan *ExecuteResult, 1),
+		submitResultChan:   make(chan *chain.CallResult, 1),
 		ctrlChan:           make(chan struct{}, 1),
 	}
 	ret.metaInfo.MasterID = masterID
@@ -104,7 +111,7 @@ func (session *WorkerSession) run() {
 			if session.state == WS_STARTED {
 				var meta common.TaskMetaInfo
 				session.encoder.Decode(msg.Data, &meta)
-				fmt.Println("META!", meta)
+				fmt.Println("META!", meta, meta.ConfoundKey)
 				if meta.MasterID == session.metaInfo.MasterID &&
 					meta.TaskID == session.metaInfo.TaskID &&
 					session.checkSign(meta.Sign) {
@@ -127,9 +134,21 @@ func (session *WorkerSession) run() {
 					v, _ := session.fs.Get(k)
 					fmt.Println(k, v)
 				}
-				//TODO RUN
+				session.executer.Execute(session.code, &session.metaInfo.ExecuteInfo, session.executeResultChan)
 			} else { //TODO
 			}
+		case result := <-session.executeResultChan:
+			if result.OK {
+				fmt.Println("EXECUTE OVER!!!", result)
+				for i, hash := range result.AnsHash {
+					answerInt := common.BytesToBigInt(hash[:])
+					answerInt.Add(answerInt, common.BytesToBigInt(session.metaInfo.ConfoundKey[:]))
+					copy(result.AnsHash[i][:], answerInt.Bytes()[:20])
+				}
+				session.contractHandler.Submit(session.metaInfo.Sign, result.AnsHash, session.submitResultChan)
+			}
+		case <-session.submitResultChan:
+			return
 		case <-session.ctrlChan:
 			return
 			// case <-session.resultChan:

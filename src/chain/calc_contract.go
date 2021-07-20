@@ -50,6 +50,7 @@ func ResolveDeployArgs(args []interface{}) common.TaskID {
 
 var calcContracts map[common.ContractAddress]*CalcContractSimulator
 
+//TODO hash of meta when deploy
 func (handler *NaiveCalcContractHandler) Deploy(taskID common.TaskID, resultChan chan *DeployResult) {
 	addressNum += 1
 	s := strconv.Itoa(addressNum)

@@ -39,12 +39,25 @@ func NewTaskFileMetaInfo(keyGroup [][]string,
 	}
 }
 
+type TaskExecuteInfo struct {
+	InputKeys  [][]string
+	OutputKeys []string
+}
+
+func NewTaskExecuteInfo(inputKeys [][]string, outputKeys []string) *TaskExecuteInfo {
+	return &TaskExecuteInfo{
+		InputKeys:  inputKeys,
+		OutputKeys: outputKeys,
+	}
+}
+
 type TaskMetaInfo struct {
 	MasterID    NodeID
 	TaskID      TaskID
 	ConfoundKey [20]byte
 	Sign        []byte
 	FileInfo    TaskFileMetaInfo
+	ExecuteInfo TaskExecuteInfo
 }
 
 func NewTaskMetaInfo(
@@ -52,12 +65,14 @@ func NewTaskMetaInfo(
 	taskID TaskID,
 	confoundKey [20]byte,
 	sign []byte,
-	fileInfo *TaskFileMetaInfo) *TaskMetaInfo {
+	fileInfo *TaskFileMetaInfo,
+	executeInfo *TaskExecuteInfo) *TaskMetaInfo {
 	return &TaskMetaInfo{
 		MasterID:    masterID,
 		TaskID:      taskID,
 		ConfoundKey: confoundKey,
 		Sign:        sign,
 		FileInfo:    *fileInfo,
+		ExecuteInfo: *executeInfo,
 	}
 }

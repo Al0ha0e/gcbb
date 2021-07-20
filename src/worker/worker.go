@@ -15,6 +15,7 @@ type Worker struct {
 	staticAppliNetHandler     net.AppliNetHandler
 	appliNetHandlerFactory    net.AppliNetHandlerFactory
 	calcContractHandlerFatory chain.CalcContractHandlerFactory
+	executerFactory           ExecuterFactory
 	encoder                   common.Encoder
 
 	taskRequestChan chan *net.ListenerNetMsg
@@ -26,6 +27,7 @@ func NewWorker(id common.NodeID,
 	staticAppliNetHandler net.AppliNetHandler,
 	appliNetHandlerFactory net.AppliNetHandlerFactory,
 	calcContractHandlerFatory chain.CalcContractHandlerFactory,
+	executerFactory ExecuterFactory,
 	encoder common.Encoder) *Worker {
 	ret := &Worker{
 		id:                        id,
@@ -33,6 +35,7 @@ func NewWorker(id common.NodeID,
 		staticAppliNetHandler:     staticAppliNetHandler,
 		appliNetHandlerFactory:    appliNetHandlerFactory,
 		calcContractHandlerFatory: calcContractHandlerFatory,
+		executerFactory:           executerFactory,
 		encoder:                   encoder,
 		taskRequestChan:           make(chan *net.ListenerNetMsg, 10),
 		ctrlChan:                  make(chan struct{}, 1),
@@ -55,6 +58,7 @@ func (worker *Worker) run() {
 				fmt.Println("REQUEST FROM MASTER", worker.id, req)
 				contractHandler := worker.calcContractHandlerFatory.GetCalcContractHandler()
 				appliHandler := worker.appliNetHandlerFactory.GetHandler()
+				executer := worker.executerFactory.GetExecuter()
 				session := NewWorkerSession(
 					worker.id,
 					req.MasterID,
@@ -64,6 +68,7 @@ func (worker *Worker) run() {
 					msg.FromHandlerID,
 					contractHandler,
 					appliHandler,
+					executer,
 					worker.encoder)
 				session.Start()
 			}

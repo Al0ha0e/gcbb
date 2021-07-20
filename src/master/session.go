@@ -71,7 +71,7 @@ func NewSubTaskSession(taskInfo *SubTask,
 	encoder common.Encoder,
 	appliNetHandler net.AppliNetHandler) *SubTaskSession {
 	//TODO GenKey
-	unitTaskCnt := len(taskInfo.UnitTasks)
+	unitTaskCnt := taskInfo.UnitTaskCnt
 	ret := &SubTaskSession{
 		taskInfo: taskInfo,
 		mid:      mid,
@@ -91,7 +91,7 @@ func NewSubTaskSession(taskInfo *SubTask,
 		terminateChan:   make(chan *chain.CallResult, 1),
 		ctrlChan:        make(chan struct{}, 1),
 	}
-	for i := 0; i < unitTaskCnt; i++ {
+	for i := 0; i < int(unitTaskCnt); i++ {
 		ret.answers[i] = make(map[common.HashVal]uint32)
 	}
 	return ret
@@ -154,7 +154,7 @@ func (session *SubTaskSession) run() {
 					confoundKey := session.genConfoundKey(resMsg.WorkerID)
 					session.peers[resMsg.WorkerID] = NewPeerTaskInfo(confoundKey, STPEER_ACCEPT)
 					sign := session.genSign(resMsg.WorkerID)
-					meta := common.NewTaskMetaInfo(session.mid, session.taskInfo.ID, confoundKey, sign, session.taskInfo.FileInfo)
+					meta := common.NewTaskMetaInfo(session.mid, session.taskInfo.ID, confoundKey, sign, session.taskInfo.FileInfo, session.taskInfo.ExecuteInfo)
 					session.appliNetHandler.SendTo(resMsg.WorkerID, msg.FromHandlerID, common.CPROC_META, session.encoder.Encode(&meta))
 					session.peers[resMsg.WorkerID].State = STPEER_RUNNING
 				}
@@ -166,6 +166,7 @@ func (session *SubTaskSession) run() {
 				info.State = STPEER_SUBMITTED
 				confoundKey := info.ConfoundKey
 				ansHash := msg.Args[1].([]common.HashVal)
+				fmt.Println("ANS RECEIVED", ansHash)
 				session.answerCnt += 1
 				for i, hash := range ansHash {
 					answerInt := common.BytesToBigInt(hash[:])
@@ -186,21 +187,27 @@ func (session *SubTaskSession) run() {
 					}
 				}
 				//TODO Check Termination
-				canTerminate := true
-				for _, cnt := range session.validAnswerCnt {
-					if cnt*2 <= session.answerCnt {
-						canTerminate = false
-						break
+				if session.answerCnt >= session.taskInfo.MinAnswerCnt {
+					canTerminate := true
+					for _, cnt := range session.validAnswerCnt {
+						if cnt*2 <= session.answerCnt {
+							canTerminate = false
+							break
+						}
 					}
-				}
-				if canTerminate {
-					session.state = STASK_TERMINATING
-					session.contractHandler.Terminate(session.key, session.terminateChan)
+					if canTerminate {
+						session.state = STASK_TERMINATING
+						fmt.Println("TERMINATE 1!", session.answerCnt, session.validAnswers[0], session.validAnswerCnt[0])
+						session.contractHandler.Terminate(session.key, session.terminateChan)
+					}
+				} else {
+					fmt.Println("NONONO")
 				}
 			} else {
 				//TODO
 			}
 		case <-session.terminateChan:
+			fmt.Println("TERMINATE 2!")
 			session.state = STASK_TERMINATED
 			return
 		case <-session.ctrlChan:
